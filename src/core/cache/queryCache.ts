@@ -17,6 +17,20 @@ export interface PersistentCachePayload {
 	entries: CacheEntry[];
 }
 
+export interface CacheSnapshot {
+	revision: number;
+	payload: PersistentCachePayload;
+}
+
+export async function saveQueryCacheSnapshot(
+	cache: QueryCache,
+	save: (payload: PersistentCachePayload) => Promise<void>,
+): Promise<void> {
+	const snapshot = cache.createSnapshot();
+	await save(snapshot.payload);
+	cache.markClean(snapshot.revision);
+}
+
 export const CACHE_VERSION = 2;
 export const LRU_EVICT_RATIO = 0.9;
 
@@ -31,7 +45,8 @@ export class QueryCache {
 	readonly manifest = new ManifestStore();
 	activeKey: string | null = null;
 	private activeKeys = new Set<string>();
-	private dirty = false;
+	private revision = 0;
+	private cleanRevision = 0;
 
 	constructor(private options: QueryCacheOptions) {}
 
@@ -42,6 +57,8 @@ export class QueryCache {
 	load(payload: PersistentCachePayload | null | undefined): void {
 		this.entries.clear();
 		this.nonPersistentKeys.clear();
+		this.revision = 0;
+		this.cleanRevision = 0;
 		if (!payload || payload.version !== CACHE_VERSION) {
 			this.manifest.load(null);
 			return;
@@ -63,7 +80,19 @@ export class QueryCache {
 		return {
 			version: CACHE_VERSION,
 			manifest: this.manifest.exportData(),
-			entries: [...this.entries.values()].filter((e) => !this.nonPersistentKeys.has(e.key)),
+			entries: [...this.entries.values()]
+				.filter((entry) => !this.nonPersistentKeys.has(entry.key))
+				.map((entry) => ({
+					...entry,
+					hits: entry.hits.map((hit) => ({ ...hit })),
+				})),
+		};
+	}
+
+	createSnapshot(): CacheSnapshot {
+		return {
+			revision: this.revision,
+			payload: this.exportPayload(),
 		};
 	}
 
@@ -72,7 +101,7 @@ export class QueryCache {
 		if (entry) {
 			entry.lastAccess = Date.now();
 			if (this.options.mode === 'persistent') {
-				this.dirty = true;
+				this.markDirty();
 			}
 		}
 		return entry;
@@ -91,7 +120,7 @@ export class QueryCache {
 			scannedGeneration: entry.scannedGeneration,
 		};
 		this.entries.set(key, full);
-		this.dirty = true;
+		this.markDirty();
 		this.refreshEntryPersistence(key);
 		this.enforceLimits(key);
 	}
@@ -111,7 +140,7 @@ export class QueryCache {
 			entry.scannedGeneration = patch.scannedGeneration;
 		}
 		entry.lastAccess = patch.lastAccess ?? Date.now();
-		this.dirty = true;
+		this.markDirty();
 		this.refreshEntryPersistence(key);
 		this.enforceLimits(key);
 	}
@@ -120,7 +149,7 @@ export class QueryCache {
 		const entry = this.entries.get(key);
 		if (entry) {
 			entry.lastAccess = Date.now();
-			this.dirty = true;
+			this.markDirty();
 		}
 	}
 
@@ -169,22 +198,29 @@ export class QueryCache {
 	delete(key: string): void {
 		if (this.entries.delete(key)) {
 			this.nonPersistentKeys.delete(key);
-			this.dirty = true;
+			this.markDirty();
 		}
 	}
 
 	clear(): void {
 		this.entries.clear();
 		this.nonPersistentKeys.clear();
-		this.dirty = true;
+		this.markDirty();
 	}
 
 	isDirty(): boolean {
-		return this.dirty;
+		return this.revision > this.cleanRevision;
 	}
 
-	markClean(): void {
-		this.dirty = false;
+	markDirty(): void {
+		this.revision++;
+	}
+
+	markClean(revision = this.revision): void {
+		this.cleanRevision = Math.max(
+			this.cleanRevision,
+			Math.min(revision, this.revision),
+		);
 	}
 
 	isNonPersistent(key: string): boolean {
@@ -278,7 +314,7 @@ export class QueryCache {
 			this.entries.delete(key);
 			this.nonPersistentKeys.delete(key);
 			evicted++;
-			this.dirty = true;
+			this.markDirty();
 		}
 		return evicted;
 	}

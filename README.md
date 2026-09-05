@@ -102,7 +102,7 @@ Search terms cannot contain `|`, `[`, or `]` (wikilink-breaking characters). Jap
 | Min/max term length, max auto candidates, stop words | Tune extraction |
 | Ignored terms | User blocklist for auto-extract (selection search unaffected) |
 | Max files / max file size | Safety caps |
-| Cache mode / cache limit | Memory-only vs persistent LRU |
+| Cache mode / cache limit | Memory-only vs persistent LRU (persistent is the default) |
 | Max matches per note / max candidate notes | Prevent result explosion |
 
 ## Cold / Warm search
@@ -122,7 +122,11 @@ Search terms cannot contain `|`, `[`, or `]` (wikilink-breaking characters). Jap
 
 ## Privacy
 
-All reads and cache stay local. Cache stores paths, headings, excerpts, and mtimes — not full note bodies.
+All reads and cache stay local; the plugin does not send content externally. The default
+**persistent** cache writes search queries and matching paths, headings, offsets, excerpts,
+and mtimes to the plugin's `data.json`, together with settings. Full note bodies are not
+stored. Choose the memory-only cache or clear the search cache if you do not want those
+search details retained on disk.
 
 ## Development
 

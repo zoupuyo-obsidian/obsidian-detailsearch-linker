@@ -7,7 +7,15 @@ import {
 	type Command,
 	type Editor,
 } from 'obsidian';
-import { QueryCache, type PersistentCachePayload } from './core/cache/queryCache';
+import {
+	QueryCache,
+	saveQueryCacheSnapshot,
+	type PersistentCachePayload,
+} from './core/cache/queryCache';
+import {
+	reportSaveFailure,
+	SaveCoordinator,
+} from './core/persistence/saveCoordinator';
 import {
 	BUILD_ARTIFACT_MARKERS,
 	COMMAND_DEFINITIONS,
@@ -64,7 +72,8 @@ import {
 } from './settings';
 import { promptSearchQuery, noticeQueryValidation } from './ui/queryInputModal';
 
-const CACHE_SAVE_DEBOUNCE_MS = 2000;
+const SAVE_DEBOUNCE_MS = 400;
+const SAVE_ERROR_NOTICE_COOLDOWN_MS = 10_000;
 const SEARCH_PROGRESS_THRESHOLD = 50;
 
 /** Ensures build markers stay in the bundle for post-build verification. */
@@ -99,7 +108,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private activeSearchEditor: EditorView | null = null;
 	private activeSearchFilePath = '';
 	private searchRunId = 0;
-	private cacheSaveTimer: number | null = null;
+	private readonly saveCoordinator: SaveCoordinator;
+	private lastSaveErrorNoticeAt = 0;
 	private readonly localizedCommands: {
 		command: Command;
 		key: Parameters<typeof t>[1];
@@ -108,6 +118,14 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	constructor(app: import('obsidian').App, manifest: import('obsidian').PluginManifest) {
 		super(app, manifest);
 		this.cache = new QueryCache({ mode: 'persistent', maxBytes: 8 * 1024 * 1024 });
+		this.saveCoordinator = new SaveCoordinator(
+			() => this.performSave(),
+			SAVE_DEBOUNCE_MS,
+			{
+				setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+				clearTimeout: (handle) => window.clearTimeout(handle as number),
+			},
+		);
 	}
 
 	async onload(): Promise<void> {
@@ -184,10 +202,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	}
 
 	onunload(): void {
-		if (this.cacheSaveTimer !== null) {
-			window.clearTimeout(this.cacheSaveTimer);
-			void this.flushCacheSave();
-		}
+		// Obsidian does not await onunload; start an immediate best-effort flush.
+		void this.flushCacheSave().catch(() => this.showSaveErrorNotice());
 		this.activeSearchToken?.cancel();
 		this.hover.detach();
 		this.hoverAttachedTo = null;
@@ -196,17 +212,40 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	}
 
 	async saveSettings(): Promise<void> {
-		await this.saveData(this.settingsPayload());
+		await reportSaveFailure(
+			this.saveCoordinator.request(),
+			() => this.showSaveErrorNotice(),
+		);
 	}
 
-	private settingsPayload(): DetailSearchLinkerSettings & { cache?: PersistentCachePayload } {
+	private settingsPayload(cache?: PersistentCachePayload): DetailSearchLinkerSettings & { cache?: PersistentCachePayload } {
 		const payload: DetailSearchLinkerSettings & { cache?: PersistentCachePayload } = {
 			...this.settings,
 		};
-		if (this.settings.cacheMode === 'persistent') {
-			payload.cache = this.cache.exportPayload();
+		if (cache) {
+			payload.cache = cache;
 		}
 		return payload;
+	}
+
+	private async performSave(): Promise<void> {
+		if (this.settings.cacheMode === 'persistent') {
+			await saveQueryCacheSnapshot(
+				this.cache,
+				(cache) => this.saveData(this.settingsPayload(cache)),
+			);
+		} else {
+			await this.saveData(this.settingsPayload());
+		}
+	}
+
+	private showSaveErrorNotice(): void {
+		const now = Date.now();
+		if (now - this.lastSaveErrorNoticeAt < SAVE_ERROR_NOTICE_COOLDOWN_MS) {
+			return;
+		}
+		this.lastSaveErrorNoticeAt = now;
+		new Notice(t(this.settings.uiLanguage, 'noticeSaveFailed'));
 	}
 
 	applyCacheOptions(): void {
@@ -306,6 +345,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				return;
 			}
 			this.cache.manifest.noteChanged(file.path, file.stat.mtime);
+			this.cache.markDirty();
 			this.scheduleCacheSave();
 		};
 		this.registerEvent(
@@ -326,6 +366,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			this.app.vault.on('delete', (file) => {
 				if (file instanceof TFile && file.extension === 'md') {
 					this.cache.manifest.noteDeleted(file.path);
+					this.cache.markDirty();
 					this.scheduleCacheSave();
 				}
 			}),
@@ -334,6 +375,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			this.app.vault.on('rename', (file, oldPath) => {
 				if (file instanceof TFile && file.extension === 'md') {
 					this.cache.manifest.noteRenamed(oldPath, file.path, file.stat.mtime);
+					this.cache.markDirty();
 					this.scheduleCacheSave();
 				}
 			}),
@@ -344,21 +386,15 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		if (this.settings.cacheMode !== 'persistent') {
 			return;
 		}
-		if (this.cacheSaveTimer !== null) {
-			window.clearTimeout(this.cacheSaveTimer);
-		}
-		this.cacheSaveTimer = window.setTimeout(() => {
-			this.cacheSaveTimer = null;
-			void this.flushCacheSave();
-		}, CACHE_SAVE_DEBOUNCE_MS);
+		void this.saveCoordinator.request().catch(() => this.showSaveErrorNotice());
 	}
 
 	private async flushCacheSave(): Promise<void> {
-		if (this.settings.cacheMode !== 'persistent' || !this.cache.isDirty()) {
-			return;
-		}
-		this.cache.markClean();
-		await this.saveSettings();
+		// Always enqueue one current payload. It coalesces with a pending debounce,
+		// or follows an in-flight write so unload observes the latest save result.
+		const request = this.saveCoordinator.request();
+		await this.saveCoordinator.flush();
+		await request;
 	}
 
 	private scopeInput() {

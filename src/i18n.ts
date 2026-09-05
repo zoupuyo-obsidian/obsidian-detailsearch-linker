@@ -44,6 +44,7 @@ const messages = {
 			`${n} ノートを読み取れなかったため、そのノートを省略しました`,
 		noticeCleared: '強調を消しました',
 		noticeCacheCleared: '検索キャッシュを消去しました',
+		noticeSaveFailed: '設定と検索キャッシュを保存できませんでした。変更はまだ保存されていません',
 		noticeAnchorChanged: '強調位置が変わったため、リンク挿入を中止しました',
 		noticeCacheSize: (entries: number, kb: number) =>
 			`キャッシュ: ${entries} クエリ / 約 ${kb} KB`,
@@ -86,7 +87,8 @@ const messages = {
 		settingsCaseSensitive: '大文字と小文字を区別',
 		settingsCaseSensitiveDesc: 'オフ（既定）なら英語は大小無視',
 		settingsCacheMode: 'キャッシュ',
-		settingsCacheModeDesc: '同じ検索語の再走査を減らします。本文は保存しません',
+		settingsCacheModeDesc:
+			'同じ検索語の再走査を減らします。永続モードは検索語、path、見出し、位置、抜粋、mtime をプラグインの data.json に保存します。ノート全文の本文は保存せず、外部送信もしません',
 		cachePersistent: '上限付き永続',
 		cacheMemory: 'メモリのみ',
 		settingsCacheMaxMb: 'キャッシュ上限 (MB)',
@@ -175,6 +177,7 @@ const messages = {
 			`Skipped ${n} note(s) that could not be read`,
 		noticeCleared: 'Cleared highlights',
 		noticeCacheCleared: 'Search cache cleared',
+		noticeSaveFailed: 'Could not save settings and search cache; changes remain unsaved',
 		noticeAnchorChanged: 'Anchor changed; link insertion aborted',
 		noticeCacheSize: (entries: number, kb: number) =>
 			`Cache: ${entries} queries / ~${kb} KB`,
@@ -218,7 +221,8 @@ const messages = {
 		settingsCaseSensitive: 'Case sensitive',
 		settingsCaseSensitiveDesc: 'Off (default): ignore case for Latin letters',
 		settingsCacheMode: 'Cache',
-		settingsCacheModeDesc: 'Reduces rescans for repeated terms. Note bodies are not stored',
+		settingsCacheModeDesc:
+			'Reduces rescans for repeated terms. Persistent mode stores queries, paths, headings, offsets, excerpts, and mtimes in the plugin data.json. Full note bodies are not stored or sent externally',
 		cachePersistent: 'Persistent with limit',
 		cacheMemory: 'Memory only',
 		settingsCacheMaxMb: 'Cache limit (MB)',

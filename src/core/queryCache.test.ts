@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { QueryCache } from './cache/queryCache.ts';
+import { QueryCache, saveQueryCacheSnapshot } from './cache/queryCache.ts';
 import { ManifestStore } from './cache/manifestStore.ts';
 import { mergeCacheHits } from './search/bodyScanner.ts';
 
@@ -45,6 +45,46 @@ test('get does not mark dirty in memory mode', () => {
 	cache.markClean();
 	cache.get(key);
 	assert.equal(cache.isDirty(), false);
+});
+
+test('failed snapshot save leaves cache dirty', async () => {
+	const cache = new QueryCache({ mode: 'persistent', maxBytes: 1024 });
+	cache.set('k', {
+		hits: [],
+		scopeFingerprint: 's',
+		caseSensitive: false,
+		scannedGeneration: 1,
+	});
+
+	await assert.rejects(
+		saveQueryCacheSnapshot(cache, async () => {
+			throw new Error('disk full');
+		}),
+		/disk full/,
+	);
+	assert.equal(cache.isDirty(), true);
+});
+
+test('mutation after snapshot remains dirty when save completes', async () => {
+	const cache = new QueryCache({ mode: 'persistent', maxBytes: 1024 });
+	cache.set('k', {
+		hits: [],
+		scopeFingerprint: 's',
+		caseSensitive: false,
+		scannedGeneration: 1,
+	});
+	let finishSave: (() => void) | undefined;
+	const saving = saveQueryCacheSnapshot(
+		cache,
+		() => new Promise<void>((resolve) => {
+			finishSave = resolve;
+		}),
+	);
+
+	cache.touch('k');
+	finishSave?.();
+	await saving;
+	assert.equal(cache.isDirty(), true);
 });
 
 test('oversized entry stays in memory but excluded from export', () => {
