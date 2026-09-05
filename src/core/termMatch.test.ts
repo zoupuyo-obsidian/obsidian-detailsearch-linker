@@ -34,6 +34,28 @@ test('findTermOccurrences finds Japanese', () => {
 	assert.equal(hits.length, 1);
 });
 
+test('findTermOccurrences preserves offsets after expanded case folds', () => {
+	const text = 'İ target';
+	const hits = findTermOccurrences(text, 'target', false, []);
+	assert.deepEqual(hits, [{
+		from: text.indexOf('target'),
+		to: text.length,
+		text: 'target',
+	}]);
+});
+
+test('findTermOccurrences maps an expanded query to the full source range', () => {
+	const text = 'before i\u0307 after';
+	const from = text.indexOf('i');
+	const hits = findTermOccurrences(text, 'İ', false, []);
+
+	assert.deepEqual(hits, [{
+		from,
+		to: from + 2,
+		text: 'i\u0307',
+	}]);
+});
+
 test('anchorStillValid detects edit', () => {
 	const text = 'hello world';
 	assert.equal(anchorStillValid(text, 0, 5, 'hello', false), true);

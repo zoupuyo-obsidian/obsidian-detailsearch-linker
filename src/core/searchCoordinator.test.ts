@@ -29,9 +29,13 @@ type FileRecord = { content: string; mtime: number };
 function makeHarness(initial: Record<string, FileRecord>) {
 	const files = new Map(Object.entries(initial));
 	const readPaths: string[] = [];
+	const failedPaths = new Set<string>();
 	const cache = new QueryCache({ mode: 'persistent', maxBytes: 1024 * 1024 });
 	const coordinator = new SearchCoordinator(cache, async (path) => {
 		readPaths.push(path);
+		if (failedPaths.has(path)) {
+			return null;
+		}
 		const rec = files.get(path);
 		if (!rec) {
 			return null;
@@ -63,11 +67,18 @@ function makeHarness(initial: Record<string, FileRecord>) {
 		cache,
 		coordinator,
 		files,
+		failedPaths,
 		readPaths,
 		scoped,
 		run,
 		set(path: string, content: string, mtime: number) {
 			files.set(path, { content, mtime });
+		},
+		fail(path: string) {
+			failedPaths.add(path);
+		},
+		recover(path: string) {
+			failedPaths.delete(path);
 		},
 	};
 }
@@ -270,4 +281,46 @@ test('(h) warm cancel mid-rescan leaves cache generation and hits unchanged', as
 	assert.equal(reads, 1);
 	assert.deepEqual(retry.readPaths, ['b.md']);
 	assert.ok(retry.hits.some((hit) => hit.excerpt.includes('updated')));
+});
+
+test('cold read failure remains incomplete and retries successfully', async () => {
+	const h = makeHarness({
+		'a.md': { content: 'term found after retry', mtime: 1 },
+	});
+	h.fail('a.md');
+	const first = await h.run(['a.md']);
+	const key = h.cache.makeKey('term', false, scopeFingerprint(SCOPE));
+	const incomplete = h.cache.get(key)!;
+
+	assert.equal(first.hits.length, 0);
+	assert.ok(incomplete.scannedGeneration < h.cache.manifest.getGeneration());
+
+	h.recover('a.md');
+	h.readPaths.length = 0;
+	const retry = await h.run(['a.md']);
+	assert.deepEqual(h.readPaths, ['a.md']);
+	assert.equal(retry.hits.length, 1);
+	assert.equal(h.cache.get(key)!.scannedGeneration, h.cache.manifest.getGeneration());
+});
+
+test('warm read failure preserves cached hit and retries changed path', async () => {
+	const h = makeHarness({
+		'a.md': { content: 'term original', mtime: 1 },
+	});
+	await h.run(['a.md']);
+	const key = h.cache.makeKey('term', false, scopeFingerprint(SCOPE));
+	const previousGeneration = h.cache.get(key)!.scannedGeneration;
+
+	h.set('a.md', 'term restored after failure', 2);
+	h.fail('a.md');
+	const failed = await h.run(['a.md']);
+	assert.equal(failed.hits.length, 1);
+	assert.ok(failed.hits[0]!.excerpt.includes('original'));
+	assert.equal(h.cache.get(key)!.scannedGeneration, previousGeneration);
+
+	h.recover('a.md');
+	h.readPaths.length = 0;
+	const retry = await h.run(['a.md']);
+	assert.deepEqual(h.readPaths, ['a.md']);
+	assert.ok(retry.hits[0]!.excerpt.includes('restored'));
 });

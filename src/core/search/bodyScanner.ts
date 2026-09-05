@@ -9,6 +9,11 @@ import {
 	needsBoundaryCheck,
 	normalizeTerm,
 } from './termMatch';
+import {
+	foldCase,
+	foldCaseWithMapping,
+	mapFoldedRange,
+} from './caseFold';
 import { MAX_FILE_BYTES } from '../query/queryValidation';
 import {
 	BODY_CHUNK_SIZE,
@@ -64,8 +69,8 @@ export async function scanFileContentAsync(
 
 	const protectedSpans = findProtectedSpans(content);
 	const headings = findHeadings(content);
-	const needle = caseSensitive ? trimmed : trimmed.toLowerCase();
-	const overlap = Math.max(0, needle.length - 1);
+	const needle = caseSensitive ? trimmed : foldCase(trimmed);
+	const overlap = Math.max(0, trimmed.length, needle.length) - 1;
 	const hits: BodyHit[] = [];
 	const seenOffsets = new Set<number>();
 
@@ -78,17 +83,33 @@ export async function scanFileContentAsync(
 			return hits;
 		}
 
-		const chunkEnd = Math.min(content.length, chunkStart + BODY_CHUNK_SIZE);
+		let chunkEnd = Math.min(content.length, chunkStart + BODY_CHUNK_SIZE);
+		if (
+			chunkEnd < content.length &&
+			/[\uD800-\uDBFF]/.test(content[chunkEnd - 1] ?? '') &&
+			/[\uDC00-\uDFFF]/.test(content[chunkEnd] ?? '')
+		) {
+			chunkEnd++;
+		}
 		const chunk = content.slice(chunkStart, chunkEnd);
-		const scanText = caseSensitive ? chunk : chunk.toLowerCase();
+		const folded = caseSensitive ? null : foldCaseWithMapping(chunk);
+		const scanText = folded?.text ?? chunk;
 		let pos = 0;
 		while (pos <= scanText.length - needle.length) {
 			const idx = scanText.indexOf(needle, pos);
 			if (idx === -1) {
 				break;
 			}
-			const absStart = chunkStart + idx;
-			const absEnd = absStart + needle.length;
+			const foldedEnd = idx + needle.length;
+			const mapped = folded
+				? mapFoldedRange(folded, idx, foldedEnd)
+				: { start: idx, end: foldedEnd };
+			if (!mapped) {
+				pos = idx + 1;
+				continue;
+			}
+			const absStart = chunkStart + mapped.start;
+			const absEnd = chunkStart + mapped.end;
 			if (covers(protectedSpans, absStart, absEnd)) {
 				pos = idx + 1;
 				continue;
@@ -133,8 +154,8 @@ export function scanFileContent(input: FileScanInput, options: ScanFileOptions):
 		input.content.length > maxBytes ? input.content.slice(0, maxBytes) : input.content;
 	const protectedSpans = findProtectedSpans(content);
 	const headings = findHeadings(content);
-	const needle = caseSensitive ? trimmed : trimmed.toLowerCase();
-	const overlap = Math.max(0, needle.length - 1);
+	const needle = caseSensitive ? trimmed : foldCase(trimmed);
+	const overlap = Math.max(0, trimmed.length, needle.length) - 1;
 	const hits: BodyHit[] = [];
 	const seenOffsets = new Set<number>();
 	for (
@@ -142,17 +163,33 @@ export function scanFileContent(input: FileScanInput, options: ScanFileOptions):
 		chunkStart < content.length;
 		chunkStart += BODY_CHUNK_SIZE - overlap
 	) {
-		const chunkEnd = Math.min(content.length, chunkStart + BODY_CHUNK_SIZE);
+		let chunkEnd = Math.min(content.length, chunkStart + BODY_CHUNK_SIZE);
+		if (
+			chunkEnd < content.length &&
+			/[\uD800-\uDBFF]/.test(content[chunkEnd - 1] ?? '') &&
+			/[\uDC00-\uDFFF]/.test(content[chunkEnd] ?? '')
+		) {
+			chunkEnd++;
+		}
 		const chunk = content.slice(chunkStart, chunkEnd);
-		const scanText = caseSensitive ? chunk : chunk.toLowerCase();
+		const folded = caseSensitive ? null : foldCaseWithMapping(chunk);
+		const scanText = folded?.text ?? chunk;
 		let pos = 0;
 		while (pos <= scanText.length - needle.length) {
 			const idx = scanText.indexOf(needle, pos);
 			if (idx === -1) {
 				break;
 			}
-			const absStart = chunkStart + idx;
-			const absEnd = absStart + needle.length;
+			const foldedEnd = idx + needle.length;
+			const mapped = folded
+				? mapFoldedRange(folded, idx, foldedEnd)
+				: { start: idx, end: foldedEnd };
+			if (!mapped) {
+				pos = idx + 1;
+				continue;
+			}
+			const absStart = chunkStart + mapped.start;
+			const absEnd = chunkStart + mapped.end;
 			if (covers(protectedSpans, absStart, absEnd)) {
 				pos = idx + 1;
 				continue;
@@ -202,8 +239,9 @@ export async function scanFilesForTerm(
 	files: FileScanInput[],
 	readFile: ReadFileFn | null,
 	options: BodyScanOptions,
-): Promise<{ hits: BodyHit[]; filesRead: number }> {
+): Promise<{ hits: BodyHit[]; filesRead: number; failedPaths: Set<string> }> {
 	const noteHits = new Map<string, BodyHit[]>();
+	const failedPaths = new Set<string>();
 	let filesRead = 0;
 	const total = files.length;
 	let done = 0;
@@ -219,6 +257,7 @@ export async function scanFilesForTerm(
 			}
 			const loaded = await readFile(file);
 			if (!loaded) {
+				failedPaths.add(file);
 				done++;
 				options.onProgress?.(done, total);
 				await (options.yieldFn ?? yieldToUi)();
@@ -233,8 +272,6 @@ export async function scanFilesForTerm(
 		const fileHits = await scanFileContentAsync(input, options);
 		if (fileHits.length > 0) {
 			noteHits.set(input.path, fileHits);
-		} else if (typeof file === 'string') {
-			noteHits.set(input.path, []);
 		}
 		done++;
 		options.onProgress?.(done, total);
@@ -281,7 +318,7 @@ export async function scanFilesForTerm(
 		noteCount++;
 	}
 
-	return { hits, filesRead };
+	return { hits, filesRead, failedPaths };
 }
 
 export function filterHitsToScope(hits: BodyHit[], scopePaths: ReadonlySet<string>): BodyHit[] {

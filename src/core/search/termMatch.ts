@@ -1,3 +1,9 @@
+import {
+	foldCase,
+	foldCaseWithMapping,
+	mapFoldedRange,
+} from './caseFold';
+
 export const LATIN = /[A-Za-z0-9]/;
 export const LATIN_LETTER = /[A-Za-z]/;
 export const JAPANESE_OR_HAN =
@@ -5,7 +11,7 @@ export const JAPANESE_OR_HAN =
 export const UNICODE_WORD = /[\p{L}\p{M}\p{N}_]/u;
 
 export function normalizeTerm(value: string, caseSensitive: boolean): string {
-	return caseSensitive ? value.trim() : value.trim().toLowerCase();
+	return caseSensitive ? value.trim() : foldCase(value.trim());
 }
 
 function codePointBefore(text: string, index: number): string {
@@ -81,8 +87,9 @@ export function findTermOccurrences(
 	if (!trimmed) {
 		return [];
 	}
-	const scan = caseSensitive ? text : text.toLowerCase();
-	const needle = caseSensitive ? trimmed : trimmed.toLowerCase();
+	const folded = caseSensitive ? null : foldCaseWithMapping(text);
+	const scan = folded?.text ?? text;
+	const needle = caseSensitive ? trimmed : foldCase(trimmed);
 	const out: TermOccurrence[] = [];
 	let pos = 0;
 	while (pos <= scan.length - needle.length) {
@@ -90,22 +97,30 @@ export function findTermOccurrences(
 		if (idx === -1) {
 			break;
 		}
-		const end = idx + needle.length;
+		const foldedEnd = idx + needle.length;
+		const mapped = folded
+			? mapFoldedRange(folded, idx, foldedEnd)
+			: { start: idx, end: foldedEnd };
+		if (!mapped) {
+			pos = idx + 1;
+			continue;
+		}
+		const { start, end } = mapped;
 		let skip = false;
 		for (const span of protectedSpans) {
 			if (span.start >= end) {
 				break;
 			}
-			if (idx < span.end && end > span.start) {
+			if (start < span.end && end > span.start) {
 				skip = true;
 				break;
 			}
 		}
 		if (
 			!skip &&
-			(!needsBoundaryCheck(trimmed) || hasTermBoundary(text, idx, end, trimmed))
+			(!needsBoundaryCheck(trimmed) || hasTermBoundary(text, start, end, trimmed))
 		) {
-			out.push({ from: idx, to: end, text: text.slice(idx, end) });
+			out.push({ from: start, to: end, text: text.slice(start, end) });
 		}
 		pos = idx + 1;
 	}

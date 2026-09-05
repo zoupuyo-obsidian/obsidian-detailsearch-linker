@@ -39,6 +39,9 @@ const messages = {
 			`省略: サイズ超過 ${size} 件、件数上限 ${limit} 件`,
 		noticeCancelled: '検索を中止しました',
 		noticeSearchBusy: '検索が実行中です',
+		noticeSearchFailed: '検索中に予期しないエラーが発生しました',
+		noticeSearchReadErrors: (n: number) =>
+			`${n} ノートを読み取れなかったため、そのノートを省略しました`,
 		noticeCleared: '強調を消しました',
 		noticeCacheCleared: '検索キャッシュを消去しました',
 		noticeAnchorChanged: '強調位置が変わったため、リンク挿入を中止しました',
@@ -167,6 +170,9 @@ const messages = {
 			`Skipped: ${size} over size limit, ${limit} over file limit`,
 		noticeCancelled: 'Search cancelled',
 		noticeSearchBusy: 'A search is already running',
+		noticeSearchFailed: 'An unexpected error occurred during search',
+		noticeSearchReadErrors: (n: number) =>
+			`Skipped ${n} note(s) that could not be read`,
 		noticeCleared: 'Cleared highlights',
 		noticeCacheCleared: 'Search cache cleared',
 		noticeAnchorChanged: 'Anchor changed; link insertion aborted',

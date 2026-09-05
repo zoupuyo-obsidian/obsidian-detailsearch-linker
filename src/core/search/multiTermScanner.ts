@@ -12,6 +12,12 @@ import {
 	normalizeTerm,
 } from '../search/termMatch';
 import {
+	foldCase,
+	foldCaseWithMapping,
+	mapFoldedRange,
+	type FoldedText,
+} from '../search/caseFold';
+import {
 	BODY_CHUNK_SIZE,
 	type BodyHit,
 	type CancelToken,
@@ -59,7 +65,7 @@ function buildAutomaton(
 		if (term.caseSensitive !== caseSensitive) {
 			continue;
 		}
-		const needle = caseSensitive ? term.query.trim() : term.query.trim().toLowerCase();
+		const needle = caseSensitive ? term.query.trim() : foldCase(term.query.trim());
 		if (!needle || seen.has(needle)) {
 			continue;
 		}
@@ -106,11 +112,18 @@ function collectChunkHits(
 	out: Map<string, BodyHit[]>,
 	options: MultiScanOptions,
 	input: FileScanInput,
+	folded?: FoldedText,
 ): void {
 	const rawHits = automaton.find(scanText);
 	for (const hit of rawHits) {
-		const absStart = chunkStart + hit.start;
-		const absEnd = chunkStart + hit.end;
+		const mapped = folded
+			? mapFoldedRange(folded, hit.start, hit.end)
+			: { start: hit.start, end: hit.end };
+		if (!mapped) {
+			continue;
+		}
+		const absStart = chunkStart + mapped.start;
+		const absEnd = chunkStart + mapped.end;
 		const term = termByNeedle.get(hit.term);
 		if (!term) {
 			continue;
@@ -167,7 +180,12 @@ export async function scanFileMultiTermsAsync(
 
 	let maxLen = 0;
 	for (const term of terms) {
-		maxLen = Math.max(maxLen, term.query.trim().length);
+		const trimmed = term.query.trim();
+		maxLen = Math.max(
+			maxLen,
+			trimmed.length,
+			term.caseSensitive ? trimmed.length : foldCase(trimmed).length,
+		);
 	}
 	const overlap = Math.max(0, maxLen - 1);
 	const perTermCounts = new Map<string, Set<number>>();
@@ -179,14 +197,22 @@ export async function scanFileMultiTermsAsync(
 		if (await yieldScan(options)) {
 			return out;
 		}
-		const chunkEnd = Math.min(content.length, chunkStart + BODY_CHUNK_SIZE);
+		let chunkEnd = Math.min(content.length, chunkStart + BODY_CHUNK_SIZE);
+		if (
+			chunkEnd < content.length &&
+			/[\uD800-\uDBFF]/.test(content[chunkEnd - 1] ?? '') &&
+			/[\uDC00-\uDFFF]/.test(content[chunkEnd] ?? '')
+		) {
+			chunkEnd++;
+		}
 		const chunk = content.slice(chunkStart, chunkEnd);
 
 		if (insensitiveAuto && insensitiveAuto.termByNeedle.size > 0) {
+			const folded = foldCaseWithMapping(chunk);
 			collectChunkHits(
 				content,
 				chunk,
-				chunk.toLowerCase(),
+				folded.text,
 				chunkStart,
 				insensitiveAuto.automaton,
 				insensitiveAuto.termByNeedle,
@@ -196,6 +222,7 @@ export async function scanFileMultiTermsAsync(
 				out,
 				options,
 				input,
+				folded,
 			);
 		}
 		if (sensitiveAuto && sensitiveAuto.termByNeedle.size > 0) {

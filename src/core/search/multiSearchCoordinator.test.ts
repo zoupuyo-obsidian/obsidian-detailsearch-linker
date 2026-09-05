@@ -19,9 +19,13 @@ type FileRecord = { content: string; mtime: number };
 function makeHarness(initial: Record<string, FileRecord>) {
 	const files = new Map(Object.entries(initial));
 	const readCountByPath = new Map<string, number>();
+	const failedPaths = new Set<string>();
 	const cache = new QueryCache({ mode: 'persistent', maxBytes: 1024 * 1024 });
 	const coordinator = new MultiSearchCoordinator(cache, async (path) => {
 		readCountByPath.set(path, (readCountByPath.get(path) ?? 0) + 1);
+		if (failedPaths.has(path)) {
+			return null;
+		}
 		const rec = files.get(path);
 		if (!rec) {
 			return null;
@@ -53,11 +57,18 @@ function makeHarness(initial: Record<string, FileRecord>) {
 		cache,
 		coordinator,
 		files,
+		failedPaths,
 		readCountByPath,
 		scoped,
 		run,
 		set(path: string, content: string, mtime: number) {
 			files.set(path, { content, mtime });
+		},
+		fail(path: string) {
+			failedPaths.add(path);
+		},
+		recover(path: string) {
+			failedPaths.delete(path);
 		},
 	};
 }
@@ -205,4 +216,58 @@ test('readFile throw always unpins active keys', async () => {
 	assert.ok(cache.get(keyA));
 	cache.evictLru(100);
 	assert.ok(cache.get(keyA) === undefined);
+});
+
+test('cold multi-term read failure stays incomplete and retries all affected terms', async () => {
+	const h = makeHarness({
+		'a.md': { content: 'alpha beta', mtime: 1 },
+	});
+	const terms = [
+		{ key: 'alpha', query: 'alpha', caseSensitive: false },
+		{ key: 'beta', query: 'beta', caseSensitive: false },
+	];
+	h.fail('a.md');
+	const first = await h.run(terms, ['a.md']);
+	const scopeFp = scopeFingerprint(SCOPE);
+	const alphaKey = h.cache.makeKey('alpha', false, scopeFp);
+	const betaKey = h.cache.makeKey('beta', false, scopeFp);
+
+	assert.equal(first.byTerm.get('alpha')!.hits.length, 0);
+	assert.ok(h.cache.get(alphaKey)!.scannedGeneration < h.cache.manifest.getGeneration());
+	assert.ok(h.cache.get(betaKey)!.scannedGeneration < h.cache.manifest.getGeneration());
+
+	h.recover('a.md');
+	h.readCountByPath.clear();
+	const retry = await h.run(terms, ['a.md']);
+	assert.equal(h.readCountByPath.get('a.md'), 1);
+	assert.equal(retry.byTerm.get('alpha')!.hits.length, 1);
+	assert.equal(retry.byTerm.get('beta')!.hits.length, 1);
+});
+
+test('warm multi-term read failure preserves hits and retries changed path', async () => {
+	const h = makeHarness({
+		'a.md': { content: 'alpha beta original', mtime: 1 },
+	});
+	const terms = [
+		{ key: 'alpha', query: 'alpha', caseSensitive: false },
+		{ key: 'beta', query: 'beta', caseSensitive: false },
+	];
+	await h.run(terms, ['a.md']);
+	const scopeFp = scopeFingerprint(SCOPE);
+	const alphaKey = h.cache.makeKey('alpha', false, scopeFp);
+	const previousGeneration = h.cache.get(alphaKey)!.scannedGeneration;
+
+	h.set('a.md', 'alpha beta restored', 2);
+	h.fail('a.md');
+	const failed = await h.run(terms, ['a.md']);
+	assert.ok(failed.byTerm.get('alpha')!.hits[0]!.excerpt.includes('original'));
+	assert.ok(failed.byTerm.get('beta')!.hits[0]!.excerpt.includes('original'));
+	assert.equal(h.cache.get(alphaKey)!.scannedGeneration, previousGeneration);
+
+	h.recover('a.md');
+	h.readCountByPath.clear();
+	const retry = await h.run(terms, ['a.md']);
+	assert.equal(h.readCountByPath.get('a.md'), 1);
+	assert.ok(retry.byTerm.get('alpha')!.hits[0]!.excerpt.includes('restored'));
+	assert.ok(retry.byTerm.get('beta')!.hits[0]!.excerpt.includes('restored'));
 });

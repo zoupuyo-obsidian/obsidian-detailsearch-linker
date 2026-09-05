@@ -3,6 +3,7 @@ import {
 	filterHitsToScope,
 	type ReadFileFn,
 } from './bodyScanner';
+import { generationBeforeFailures } from './failureGeneration';
 import { capHitsByNoteCount } from './hitLimits';
 import { scanFileMultiTermsAsync, type TermScanSpec } from './multiTermScanner';
 import { scopeFingerprint, type ScopedFile } from './scopeFilter';
@@ -125,6 +126,7 @@ export class MultiSearchCoordinator {
 		const readPaths: string[] = [];
 		const readCountByPath = new Map<string, number>();
 		const pending = new Map<string, Map<string, BodyHit[]>>();
+		const failedPaths = new Set<string>();
 		for (const plan of plans) {
 			pending.set(plan.cacheKey, new Map());
 		}
@@ -155,6 +157,7 @@ export class MultiSearchCoordinator {
 				done++;
 				scanOptions.onProgress?.(done, total);
 				if (!loaded) {
+					failedPaths.add(path);
 					return;
 				}
 				filesRead++;
@@ -206,22 +209,34 @@ export class MultiSearchCoordinator {
 				for (const plan of plans) {
 					let hits = [...plan.existingHits];
 					for (const path of plan.pathsToScan) {
-						const pathHits = pending.get(plan.cacheKey)?.get(path) ?? [];
+						const pathHits = pending.get(plan.cacheKey)?.get(path);
+						if (!pathHits) {
+							continue;
+						}
 						hits = mergePathHits(hits, path, pathHits);
 					}
 					hits = filterHitsToScope(hits, scopePaths);
 					hits = capHitsByNoteCount(hits, scanOptions.maxCandidateNotes);
+					const planFailedPaths = new Set(
+						[...failedPaths].filter((path) => plan.pathsToScan.has(path)),
+					);
+					const scannedGeneration = generationBeforeFailures(
+						this.cache.manifest,
+						currentGeneration,
+						plan.scannedGeneration,
+						planFailedPaths,
+					);
 					if (plan.hadCache) {
 						this.cache.updateEntry(plan.cacheKey, {
 							hits,
-							scannedGeneration: currentGeneration,
+							scannedGeneration,
 						});
 					} else {
 						this.cache.set(plan.cacheKey, {
 							hits,
 							scopeFingerprint: scopeFp,
 							caseSensitive: plan.caseSensitive,
-							scannedGeneration: currentGeneration,
+							scannedGeneration,
 						});
 					}
 					const warm = plan.pathsToScan.size === 0;

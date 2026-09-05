@@ -36,6 +36,20 @@ test('splitHighlightedText handles Japanese without locale offset drift', () => 
 	assert.deepEqual(texts(segments).join(''), excerpt);
 });
 
+test('splitHighlightedText maps expanded case folds back to source offsets', () => {
+	const excerpt = 'İ target after';
+	const segments = splitHighlightedText(excerpt, 'target', false);
+	assert.deepEqual(highlighted(segments), ['target']);
+	assert.deepEqual(texts(segments).join(''), excerpt);
+});
+
+test('splitHighlightedText highlights a full expanded source match', () => {
+	const excerpt = 'before i\u0307 after';
+	const segments = splitHighlightedText(excerpt, 'İ', false);
+	assert.deepEqual(highlighted(segments), ['i\u0307']);
+	assert.deepEqual(texts(segments).join(''), excerpt);
+});
+
 test('splitHighlightedText returns plain excerpt when query not found', () => {
 	const segments = splitHighlightedText('no match here', 'missing', false);
 	assert.deepEqual(segments, [{ text: 'no match here', highlighted: false }]);

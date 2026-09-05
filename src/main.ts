@@ -26,6 +26,8 @@ import type { SearchRequest } from './core/query/querySource';
 import { validateQuery, MAX_QUERY_LENGTH, trimSelectionRange, type QueryValidationError } from './core/query/queryValidation';
 import { MultiSearchCoordinator } from './core/search/multiSearchCoordinator';
 import { SearchCoordinator } from './core/search/searchCoordinator';
+import { safeRead } from './core/search/safeRead';
+import { searchRunIsCurrent as snapshotIsCurrent } from './core/search/searchRunGuard';
 import {
 	dedupeOverlappingAnchors,
 } from './core/extract/anchorDedupe';
@@ -94,6 +96,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private hoverAttachedTo: HTMLElement | null = null;
 	private searchBusy = false;
 	private activeSearchToken: SearchCancelToken | null = null;
+	private activeSearchEditor: EditorView | null = null;
+	private activeSearchFilePath = '';
+	private searchRunId = 0;
 	private cacheSaveTimer: number | null = null;
 	private readonly localizedCommands: {
 		command: Command;
@@ -120,6 +125,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			EditorView.updateListener.of((update) => {
 				if (!update.docChanged) {
 					return;
+				}
+				if (this.activeSearchEditor === update.view) {
+					this.invalidateActiveSearch();
 				}
 				const live = update.state.field(detailSessionField);
 				if (live.filePath && live.filePath === this.session.filePath) {
@@ -153,6 +161,12 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.registerVaultEvents();
 		this.registerEvent(
 			this.app.workspace.on('file-open', (file) => {
+				if (
+					this.activeSearchToken &&
+					file?.path !== this.activeSearchFilePath
+				) {
+					this.invalidateActiveSearch();
+				}
 				if (file instanceof TFile && file.extension === 'md') {
 					this.workset.touch(file.path);
 				}
@@ -404,14 +418,20 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		return { stem, title };
 	}
 
-	private readFileFn() {
+	private readFileFn(onError: (path: string, error: unknown) => void) {
 		return async (path: string) => {
 			const tf = this.app.vault.getAbstractFileByPath(path);
 			if (!(tf instanceof TFile)) {
 				return null;
 			}
-			const content = await this.app.vault.cachedRead(tf);
-			return { content, mtime: tf.stat.mtime };
+			return safeRead(
+				path,
+				async () => {
+					const content = await this.app.vault.cachedRead(tf);
+					return { content, mtime: tf.stat.mtime };
+				},
+				onError,
+			);
 		};
 	}
 
@@ -607,9 +627,54 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 
 	private cancelSearch(): void {
 		if (this.activeSearchToken) {
-			this.activeSearchToken.cancel();
+			this.invalidateActiveSearch();
 			new Notice(t(this.settings.uiLanguage, 'noticeCancelled'));
 		}
+	}
+
+	private beginSearch(file: TFile, cm: EditorView, token: SearchCancelToken): number {
+		const runId = ++this.searchRunId;
+		this.activeSearchToken = token;
+		this.activeSearchEditor = cm;
+		this.activeSearchFilePath = file.path;
+		this.searchBusy = true;
+		return runId;
+	}
+
+	private invalidateActiveSearch(): void {
+		if (!this.activeSearchToken) {
+			return;
+		}
+		this.activeSearchToken.cancel();
+		this.searchRunId++;
+	}
+
+	private searchRunIsCurrent(
+		runId: number,
+		file: TFile,
+		cm: EditorView,
+		startText: string,
+	): boolean {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		return snapshotIsCurrent(
+			{ runId, filePath: file.path, text: startText },
+			{
+				runId: this.searchRunId,
+				filePath: activeView?.file?.path ?? '',
+				text: cm.state.doc.toString(),
+				sameEditor: !!activeView && editorView(activeView.editor) === cm,
+			},
+		);
+	}
+
+	private finishSearch(token: SearchCancelToken): void {
+		if (this.activeSearchToken !== token) {
+			return;
+		}
+		this.searchBusy = false;
+		this.activeSearchToken = null;
+		this.activeSearchEditor = null;
+		this.activeSearchFilePath = '';
 	}
 
 	private async runSelectionSearch(
@@ -626,8 +691,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		const lang = this.settings.uiLanguage;
 		const scoped = this.collectScopedFiles(file.path);
 		const token = new SearchCancelToken();
-		this.activeSearchToken = token;
-		this.searchBusy = true;
+		const runId = this.beginSearch(file, cm, token);
+		const readErrors = new Set<string>();
+		let pinnedCacheKey: string | null = null;
 
 		const progress =
 			scoped.files.length >= SEARCH_PROGRESS_THRESHOLD
@@ -635,12 +701,16 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				: null;
 
 		try {
-			const coordinator = new SearchCoordinator(this.cache, this.readFileFn());
+			const coordinator = new SearchCoordinator(
+				this.cache,
+				this.readFileFn((path) => readErrors.add(path)),
+			);
 			const cacheKey = this.cache.makeKey(
 				request.query,
 				request.caseSensitive,
 				scopeFingerprint(this.scopeInput()),
 			);
+			pinnedCacheKey = cacheKey;
 			this.cache.pinActive(cacheKey);
 
 			const result = await coordinator.execute({
@@ -654,11 +724,17 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 
 			progress?.hide();
 
-			if (token.cancelled) {
+			if (
+				token.cancelled ||
+				!this.searchRunIsCurrent(runId, file, cm, text)
+			) {
 				return;
 			}
 
 			this.scheduleCacheSave();
+			if (readErrors.size > 0) {
+				new Notice(tf(lang, 'noticeSearchReadErrors', readErrors.size));
+			}
 
 			const hits = result.hits;
 			const groupKey = groupKeyForQuery(request.query, request.caseSensitive);
@@ -707,16 +783,19 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			} else {
 				new Notice(tf(lang, 'noticeSearchDone', group.candidates.length, totalHits));
 			}
+		} catch {
+			if (
+				!token.cancelled &&
+				this.searchRunIsCurrent(runId, file, cm, text)
+			) {
+				new Notice(t(lang, 'noticeSearchFailed'));
+			}
 		} finally {
 			progress?.hide();
-			this.searchBusy = false;
-			this.activeSearchToken = null;
-			const cacheKey = this.cache.makeKey(
-				request.query,
-				request.caseSensitive,
-				scopeFingerprint(this.scopeInput()),
-			);
-			this.cache.unpinActive(cacheKey);
+			this.finishSearch(token);
+			if (pinnedCacheKey) {
+				this.cache.unpinActive(pinnedCacheKey);
+			}
 		}
 	}
 
@@ -734,8 +813,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		const lang = this.settings.uiLanguage;
 		const scoped = this.collectScopedFiles(file.path);
 		const token = new SearchCancelToken();
-		this.activeSearchToken = token;
-		this.searchBusy = true;
+		const runId = this.beginSearch(file, cm, token);
+		const readErrors = new Set<string>();
 
 		const progress =
 			scoped.files.length >= SEARCH_PROGRESS_THRESHOLD
@@ -749,7 +828,10 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				caseSensitive: this.settings.caseSensitive,
 			}));
 
-			const coordinator = new MultiSearchCoordinator(this.cache, this.readFileFn());
+			const coordinator = new MultiSearchCoordinator(
+				this.cache,
+				this.readFileFn((path) => readErrors.add(path)),
+			);
 			const result = await coordinator.execute({
 				terms,
 				scopeSettings: this.scopeInput(),
@@ -761,11 +843,17 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 
 			progress?.hide();
 
-			if (token.cancelled) {
+			if (
+				token.cancelled ||
+				!this.searchRunIsCurrent(runId, file, cm, text)
+			) {
 				return;
 			}
 
 			this.scheduleCacheSave();
+			if (readErrors.size > 0) {
+				new Notice(tf(lang, 'noticeSearchReadErrors', readErrors.size));
+			}
 
 			const scoredInputs: {
 				from: number;
@@ -866,10 +954,16 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			new Notice(
 				tf(lang, 'noticeAutoSearchDone', groups.length, extracted.length, cacheLabel),
 			);
+		} catch {
+			if (
+				!token.cancelled &&
+				this.searchRunIsCurrent(runId, file, cm, text)
+			) {
+				new Notice(t(lang, 'noticeSearchFailed'));
+			}
 		} finally {
 			progress?.hide();
-			this.searchBusy = false;
-			this.activeSearchToken = null;
+			this.finishSearch(token);
 		}
 	}
 

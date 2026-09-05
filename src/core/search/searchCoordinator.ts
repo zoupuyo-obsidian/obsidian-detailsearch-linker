@@ -7,6 +7,7 @@ import {
 	scanFilesForTerm,
 } from './bodyScanner';
 import { capHitsByNoteCount } from './hitLimits';
+import { generationBeforeFailures } from './failureGeneration';
 import { scopeFingerprint, type ScopedFile } from './scopeFilter';
 import type { BodyHit, CancelToken } from './types';
 
@@ -121,12 +122,21 @@ export class SearchCoordinator {
 				};
 			}
 
-			hits = mergeCacheHits(snapshotHits, partial.hits, rescanSet);
+			const successfulRescanSet = new Set(
+				rescannedPaths.filter((path) => !partial.failedPaths.has(path)),
+			);
+			hits = mergeCacheHits(snapshotHits, partial.hits, successfulRescanSet);
 			hits = filterHitsToScope(hits, scopePaths);
 			hits = capHitsByNoteCount(hits, scanOptions.maxCandidateNotes);
+			const scannedGeneration = generationBeforeFailures(
+				this.cache.manifest,
+				currentGeneration,
+				cached.scannedGeneration,
+				partial.failedPaths,
+			);
 			this.cache.updateEntry(cacheKey, {
 				hits,
-				scannedGeneration: currentGeneration,
+				scannedGeneration,
 			});
 
 			return {
@@ -156,11 +166,17 @@ export class SearchCoordinator {
 			};
 		}
 
+		const scannedGeneration = generationBeforeFailures(
+			this.cache.manifest,
+			currentGeneration,
+			0,
+			cold.failedPaths,
+		);
 		this.cache.set(cacheKey, {
 			hits: cold.hits,
 			scopeFingerprint: scopeFp,
 			caseSensitive: request.caseSensitive,
-			scannedGeneration: currentGeneration,
+			scannedGeneration,
 		});
 
 		return {

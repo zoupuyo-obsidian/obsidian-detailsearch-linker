@@ -1,13 +1,15 @@
+import {
+	foldCase,
+	foldCaseWithMapping,
+	mapFoldedRange,
+} from '../core/search/caseFold';
+
 export interface HighlightSegment {
 	text: string;
 	highlighted: boolean;
 }
 
-/**
- * Split excerpt text into plain/highlighted segments for a query.
- * Uses index-based matching on parallel case-folded strings (same constraint as body search:
- * `toLowerCase()` length matches original for matched spans).
- */
+/** Split excerpt text into plain/highlighted segments for a query. */
 export function splitHighlightedText(
 	excerpt: string,
 	query: string,
@@ -21,28 +23,44 @@ export function splitHighlightedText(
 		return [{ text: excerpt, highlighted: false }];
 	}
 
-	const needle = caseSensitive ? trimmed : trimmed.toLowerCase();
-	const haystack = caseSensitive ? excerpt : excerpt.toLowerCase();
+	const folded = caseSensitive ? null : foldCaseWithMapping(excerpt);
+	const needle = caseSensitive ? trimmed : foldCase(trimmed);
+	const haystack = folded?.text ?? excerpt;
 	if (!needle || haystack.length < needle.length) {
 		return [{ text: excerpt, highlighted: false }];
 	}
 
 	const segments: HighlightSegment[] = [];
 	let pos = 0;
+	let sourcePos = 0;
 	while (pos <= haystack.length - needle.length) {
 		const idx = haystack.indexOf(needle, pos);
 		if (idx === -1) {
 			break;
 		}
-		if (idx > pos) {
-			segments.push({ text: excerpt.slice(pos, idx), highlighted: false });
+		const foldedEnd = idx + needle.length;
+		const mapped = folded
+			? mapFoldedRange(folded, idx, foldedEnd)
+			: { start: idx, end: foldedEnd };
+		if (!mapped) {
+			pos = idx + 1;
+			continue;
 		}
-		const end = idx + trimmed.length;
-		segments.push({ text: excerpt.slice(idx, end), highlighted: true });
-		pos = end;
+		if (mapped.start > sourcePos) {
+			segments.push({
+				text: excerpt.slice(sourcePos, mapped.start),
+				highlighted: false,
+			});
+		}
+		segments.push({
+			text: excerpt.slice(mapped.start, mapped.end),
+			highlighted: true,
+		});
+		sourcePos = mapped.end;
+		pos = foldedEnd;
 	}
-	if (pos < excerpt.length) {
-		segments.push({ text: excerpt.slice(pos), highlighted: false });
+	if (sourcePos < excerpt.length) {
+		segments.push({ text: excerpt.slice(sourcePos), highlighted: false });
 	}
 	if (segments.length === 0) {
 		return [{ text: excerpt, highlighted: false }];
