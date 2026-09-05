@@ -6,6 +6,7 @@ import {
 	TFile,
 	type Command,
 	type Editor,
+	type WorkspaceLeaf,
 } from 'obsidian';
 import {
 	QueryCache,
@@ -53,16 +54,21 @@ import {
 import { anchorStillValid } from './core/search/termMatch';
 import type { CancelToken } from './core/search/types';
 import {
+	bindEditorFilePathEffect,
 	detailsearchLinkerEditorExtension,
+	readBoundEditorPath,
 	readDetailSession,
 	sessionMatchesDocument,
 	setDetailSessionEffect,
 } from './editor/highlighter';
+import { buildPaintLockCss } from './editor/paintLock';
 import { t, tf } from './i18n';
 import { DetailHoverController, type PreviewHost } from './preview/hoverPreview';
 import {
 	beginPreviewNavigation,
+	previewOpenNeedsDetachedEditor,
 	resolvePreviewOpenStrategy,
+	shouldApplySessionToLeaf,
 	transitionPreviewNavigation,
 	type PreviewNavigationState,
 } from './preview/previewNavigation';
@@ -117,6 +123,12 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private readonly hover = new DetailHoverController();
 	private hoverAttachedTo: HTMLElement | null = null;
 	private previewNavigation: PreviewNavigationState | null = null;
+	private readonly pendingPreviewLeaves = new WeakSet<WorkspaceLeaf>();
+	private allowedSessionViews = new WeakSet<EditorView>();
+	private openingPreview = false;
+	private previewSyncTimers: number[] = [];
+	private paintToken = 0;
+	private paintLockStyleEl: HTMLStyleElement | null = null;
 	private searchBusy = false;
 	private activeSearchToken: SearchCancelToken | null = null;
 	private activeSearchEditor: EditorView | null = null;
@@ -164,7 +176,27 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 					this.invalidateActiveSearch();
 				}
 				const live = readDetailSession(update.state);
-				if (live?.filePath && live.filePath === this.session.filePath) {
+				const doc = update.state.doc.toString();
+				if (live?.filePath && !sessionMatchesDocument(live, doc)) {
+					queueMicrotask(() => {
+						const current = readDetailSession(update.view.state);
+						const currentDoc = update.view.state.doc.toString();
+						if (
+							current?.filePath &&
+							!sessionMatchesDocument(current, currentDoc)
+						) {
+							update.view.dispatch({
+								effects: setDetailSessionEffect.of(emptySession()),
+							});
+						}
+					});
+					return;
+				}
+				if (
+					live?.filePath &&
+					live.filePath === this.session.filePath &&
+					sessionMatchesDocument(live, doc)
+				) {
 					this.session = live;
 				}
 			}),
@@ -216,6 +248,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 					const transition = transitionPreviewNavigation(
 						this.previewNavigation,
 						file?.path ?? null,
+						this.openingPreview,
 					);
 					this.previewNavigation = transition.state;
 					if (
@@ -247,6 +280,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.hover.detach();
 		this.hoverAttachedTo = null;
 		this.session = emptySession();
+		this.allowedSessionViews = new WeakSet();
+		this.clearPreviewSyncTimers();
+		this.clearPaintLock();
 		this.applySessionToEditors();
 	}
 
@@ -832,14 +868,14 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				candidates: groupHitsToCandidates(hits, (p) => this.resolveMeta(p)),
 			};
 
-			this.session = buildSelectionSession({
+			this.beginPaintedSession(buildSelectionSession({
 				filePath: file.path,
 				group,
 				anchors,
 				style: this.settings.highlightStyle,
 				showBadge: this.settings.showBadge,
 				caseSensitive: request.caseSensitive,
-			});
+			}));
 			this.applySessionToEditors();
 			this.attachHoverToActive();
 			this.refreshStatus();
@@ -1012,14 +1048,14 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				return;
 			}
 
-			this.session = buildAutoSession({
+			this.beginPaintedSession(buildAutoSession({
 				filePath: file.path,
 				groups,
 				anchors,
 				style: this.settings.highlightStyle,
 				showBadge: this.settings.showBadge,
 				caseSensitive: this.settings.caseSensitive,
-			});
+			}));
 			this.applySessionToEditors();
 			this.attachHoverToActive();
 			this.refreshStatus();
@@ -1057,7 +1093,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 
 	clearSession(notify: boolean): void {
 		this.previewNavigation = null;
-		this.session = emptySession();
+		this.beginPaintedSession(emptySession());
+		this.clearPaintLock();
 		this.applySessionToEditors();
 		this.hover.detach();
 		this.hoverAttachedTo = null;
@@ -1067,7 +1104,51 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		}
 	}
 
-	private applySessionToEditors(): void {
+	private beginPaintedSession(next: DetailSessionState): void {
+		this.allowedSessionViews = new WeakSet();
+		this.session = next;
+		if (next.filePath && next.anchors.length > 0) {
+			this.bumpPaintToken();
+		} else {
+			this.clearPaintLock();
+		}
+	}
+
+	private bumpPaintToken(): void {
+		this.paintToken += 1;
+		const token = this.paintToken;
+		const doc = this.app.workspace.containerEl?.ownerDocument ?? activeDocument;
+		if (!this.paintLockStyleEl) {
+			this.paintLockStyleEl = doc.createElement('style');
+			this.paintLockStyleEl.dataset.dslPaintLock = '1';
+			doc.head.appendChild(this.paintLockStyleEl);
+		}
+		this.paintLockStyleEl.textContent = buildPaintLockCss(token);
+		doc.body.dataset.dslPaint = String(token);
+		this.syncPaintTokenOnEditors();
+	}
+
+	private clearPaintLock(): void {
+		this.paintToken = 0;
+		const doc = this.app.workspace.containerEl?.ownerDocument;
+		if (doc?.body) {
+			delete doc.body.dataset.dslPaint;
+		}
+		this.paintLockStyleEl?.remove();
+		this.paintLockStyleEl = null;
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!(leaf.view instanceof MarkdownView)) {
+				return;
+			}
+			const cm = editorView(leaf.view.editor);
+			if (cm) {
+				delete cm.dom.dataset.dslPaint;
+			}
+		});
+	}
+
+	private syncPaintTokenOnEditors(): void {
+		const token = this.paintToken > 0 ? String(this.paintToken) : '';
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			if (!(leaf.view instanceof MarkdownView)) {
 				return;
@@ -1076,29 +1157,100 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			if (!cm) {
 				return;
 			}
-			const sameFile =
-				!!this.session.filePath &&
-				leaf.view.file?.path === this.session.filePath;
-			const state =
-				sameFile && sessionMatchesDocument(this.session, cm.state.doc.toString())
-					? this.session
-					: emptySession();
+			if (token && this.allowedSessionViews.has(cm)) {
+				cm.dom.dataset.dslPaint = token;
+			} else {
+				delete cm.dom.dataset.dslPaint;
+			}
+		});
+	}
+
+	private clearPreviewSyncTimers(): void {
+		for (const id of this.previewSyncTimers) {
+			window.clearTimeout(id);
+		}
+		this.previewSyncTimers = [];
+	}
+
+	private schedulePreviewSessionSync(): void {
+		this.clearPreviewSyncTimers();
+		this.bumpPaintToken();
+		this.clearSessionsExceptSource();
+		for (const delay of [0, 50, 200]) {
+			const id = window.setTimeout(() => {
+				this.bumpPaintToken();
+				this.clearSessionsExceptSource();
+			}, delay);
+			this.previewSyncTimers.push(id);
+		}
+	}
+
+	private clearEditorSession(leaf: { view: unknown }): void {
+		if (!(leaf.view instanceof MarkdownView)) {
+			return;
+		}
+		const cm = editorView(leaf.view.editor);
+		const current = cm ? readDetailSession(cm.state) : null;
+		if (!cm || !current || (!current.filePath && current.anchors.length === 0)) {
+			return;
+		}
+		cm.dispatch({ effects: setDetailSessionEffect.of(emptySession()) });
+	}
+
+	private clearSessionsExceptSource(): void {
+		this.applySessionToEditors();
+	}
+
+	private applySessionToEditors(): void {
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!(leaf.view instanceof MarkdownView)) {
+				leaf.view?.containerEl?.toggleClass('detailsearch-linker-hide-marks', true);
+				return;
+			}
+			const cm = editorView(leaf.view.editor);
+			if (!cm) {
+				return;
+			}
+			const doc = cm.state.doc.toString();
+			const boundPath = leaf.view.file?.path ?? '';
+			const paint = shouldApplySessionToLeaf({
+				sessionFilePath: this.session.filePath,
+				leafFilePath: boundPath,
+				previewTargetPath: this.previewNavigation?.targetPath ?? null,
+				leafIsPendingPreviewOpen: this.pendingPreviewLeaves.has(leaf),
+				documentMatchesSession: sessionMatchesDocument(this.session, doc),
+				openingPreview: this.openingPreview,
+				editorAlreadyAllowed: this.allowedSessionViews.has(cm),
+			});
+			const state = paint ? this.session : emptySession();
+			leaf.view.containerEl.toggleClass('detailsearch-linker-hide-marks', !paint);
+			if (paint && !this.openingPreview && !this.pendingPreviewLeaves.has(leaf)) {
+				this.allowedSessionViews.add(cm);
+			}
 			// Obsidian can expose a leaf before its editor extensions are installed.
 			const current = readDetailSession(cm.state);
 			if (!current) {
 				return;
 			}
+			const currentBound = readBoundEditorPath(cm.state);
 			if (
-				current === state ||
-				(!current.filePath &&
-					!state.filePath &&
-					current.anchors.length === 0 &&
-					state.anchors.length === 0)
+				currentBound === boundPath &&
+				(current === state ||
+					(!current.filePath &&
+						!state.filePath &&
+						current.anchors.length === 0 &&
+						state.anchors.length === 0))
 			) {
 				return;
 			}
-			cm.dispatch({ effects: setDetailSessionEffect.of(state) });
+			cm.dispatch({
+				effects: [
+					bindEditorFilePathEffect.of(boundPath),
+					setDetailSessionEffect.of(state),
+				],
+			});
 		});
+		this.syncPaintTokenOnEditors();
 	}
 
 	private attachHoverToActive(): void {
@@ -1147,17 +1299,49 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 					})),
 					targetFile.path,
 				);
+				this.openingPreview = true;
 				const targetLeaf =
 					openStrategy.kind === 'existing'
 						? markdownLeaves[openStrategy.leafIndex]
 						: this.app.workspace.getLeaf('tab');
 				if (!targetLeaf) {
+					this.openingPreview = false;
 					this.previewNavigation = null;
 					return;
 				}
-				void targetLeaf.openFile(targetFile, openState).catch(() => {
-					this.previewNavigation = null;
-				});
+				this.pendingPreviewLeaves.add(targetLeaf);
+				this.clearEditorSession(targetLeaf);
+				this.clearSessionsExceptSource();
+				this.bumpPaintToken();
+				const replaceClonedView = previewOpenNeedsDetachedEditor(openStrategy);
+				void Promise.resolve()
+					.then(async () => {
+						if (replaceClonedView) {
+							await targetLeaf.setViewState(
+								{
+									type: 'markdown',
+									active: true,
+									state: { file: targetFile.path },
+								},
+								openState?.eState,
+							);
+							return;
+						}
+						await targetLeaf.openFile(targetFile, openState);
+					})
+					.then(() => {
+						this.pendingPreviewLeaves.delete(targetLeaf);
+						this.bumpPaintToken();
+						this.clearSessionsExceptSource();
+						this.openingPreview = false;
+						this.schedulePreviewSessionSync();
+					})
+					.catch(() => {
+						this.pendingPreviewLeaves.delete(targetLeaf);
+						this.previewNavigation = null;
+						this.openingPreview = false;
+						this.schedulePreviewSessionSync();
+					});
 			},
 			clearSession: () => {
 				this.clearSession(true);

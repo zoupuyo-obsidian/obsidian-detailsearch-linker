@@ -18,6 +18,28 @@
 	color: var(--background-primary);
 }
 
+.detailsearch-linker-hide-marks .cm-detailsearch-linker-mark {
+	background-color: transparent !important;
+	color: inherit !important;
+	font-weight: inherit !important;
+	text-decoration: inherit !important;
+}
+
+.detailsearch-linker-hide-marks .cm-detailsearch-linker-badge {
+	display: none !important;
+}
+
+body[data-dsl-paint] .cm-editor:not([data-dsl-paint]) .cm-detailsearch-linker-mark {
+	background-color: transparent !important;
+	color: inherit !important;
+	font-weight: inherit !important;
+	text-decoration: inherit !important;
+}
+
+body[data-dsl-paint] .cm-editor:not([data-dsl-paint]) .cm-detailsearch-linker-badge {
+	display: none !important;
+}
+
 .cm-detailsearch-linker-mark.is-marker {
 	background-color: color-mix(in srgb, var(--detailsearch-linker-color) 38%, transparent);
 }

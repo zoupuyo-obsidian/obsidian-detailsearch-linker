@@ -5,6 +5,7 @@ import {
 	detailSessionField,
 	planHighlightRanges,
 	readDetailSession,
+	canPaintSession,
 	sessionMatchesDocument,
 	setDetailSessionEffect,
 } from './highlighter.ts';
@@ -62,7 +63,7 @@ test('changing text inside an anchor drops it', () => {
 		changes: { from: 4, to: 5, insert: 'X' },
 	}).state;
 
-	assert.deepEqual(readDetailSession(changed)?.anchors, []);
+	assert.deepEqual(readDetailSession(changed), emptySession());
 });
 
 test('inserting before an anchor maps its range and preserves it', () => {
@@ -114,4 +115,35 @@ test('sessionMatchesDocument rejects a source session on a different note body',
 	assert.equal(sessionMatchesDocument(value, 'a target z'), true);
 	assert.equal(sessionMatchesDocument(value, 'unrelated target note body'), false);
 	assert.equal(sessionMatchesDocument(emptySession(), 'a target z'), false);
+	assert.equal(
+		sessionMatchesDocument(
+			session(true, {
+				anchors: [
+					{ id: 'expanded', from: 0, to: 18, text: 'target', groupKey: 'target' },
+				],
+			}),
+			'entire document body',
+		),
+		false,
+	);
+});
+
+test('canPaintSession requires the editor to be bound to the session file', () => {
+	const value = session();
+	assert.equal(canPaintSession(value, 'source.md', 'a target z'), true);
+	assert.equal(canPaintSession(value, 'target.md', 'a target z'), false);
+	assert.equal(canPaintSession(value, '', 'a target z'), false);
+	assert.equal(canPaintSession(emptySession(), 'source.md', 'a target z'), false);
+});
+
+test('decoration planning drops ranges expanded beyond the original term', () => {
+	const ranges = planHighlightRanges(
+		session(true, {
+			anchors: [
+				{ id: 'expanded', from: 0, to: 18, text: 'target', groupKey: 'target' },
+			],
+		}),
+		'entire document body',
+	);
+	assert.deepEqual(ranges, []);
 });

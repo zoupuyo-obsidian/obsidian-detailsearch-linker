@@ -10,8 +10,10 @@ import {
 import {
 	Decoration,
 	EditorView,
+	ViewPlugin,
 	WidgetType,
 	type DecorationSet,
+	type ViewUpdate,
 } from '@codemirror/view';
 import {
 	emptySession,
@@ -86,7 +88,10 @@ function collectPlannedRanges(
 ): PlannedRange[] {
 	const planned: PlannedRange[] = [];
 	for (const anchor of state.anchors) {
-		if (!anchorTextMatches(doc, anchor, state.caseSensitive)) {
+		if (
+			anchor.to - anchor.from !== anchor.text.length ||
+			!anchorTextMatches(doc, anchor, state.caseSensitive)
+		) {
 			continue;
 		}
 		planned.push({ from: anchor.from, to: anchor.to, kind: 'mark', anchor });
@@ -156,8 +161,38 @@ function buildDecorations(
 	return builder.finish();
 }
 
+export const bindEditorFilePathEffect = StateEffect.define<string>();
+
+export const editorBoundPathField = StateField.define<string>({
+	create: () => '',
+	update(value, tr) {
+		for (const effect of tr.effects) {
+			if (effect.is(bindEditorFilePathEffect)) {
+				return effect.value;
+			}
+		}
+		return value;
+	},
+});
+
 export function readDetailSession(state: EditorState): DetailSessionState | null {
 	return state.field(detailSessionField, false) ?? null;
+}
+
+export function readBoundEditorPath(state: EditorState): string {
+	return state.field(editorBoundPathField, false) ?? '';
+}
+
+export function canPaintSession(
+	session: DetailSessionState,
+	boundPath: string,
+	doc: string,
+): boolean {
+	return (
+		!!session.filePath &&
+		session.filePath === boundPath &&
+		sessionMatchesDocument(session, doc)
+	);
 }
 
 export function isFullDocumentReplacement(
@@ -176,7 +211,8 @@ export function isFullDocumentReplacement(
 		hasChangedContent = true;
 		coveredUntil = Math.max(coveredUntil, toA);
 	});
-	return hasChangedContent && coveredUntil >= oldDocLength;
+	// Obsidian file switches sometimes leave a trailing newline unreplaced.
+	return hasChangedContent && coveredUntil >= Math.max(1, oldDocLength - 1);
 }
 
 function anchorTextMatches(
@@ -198,8 +234,10 @@ export function sessionMatchesDocument(
 	state: DetailSessionState,
 	doc: string,
 ): boolean {
-	return state.anchors.some((anchor) =>
-		anchorTextMatches(doc, anchor, state.caseSensitive),
+	return state.anchors.some(
+		(anchor) =>
+			anchor.to - anchor.from === anchor.text.length &&
+			anchorTextMatches(doc, anchor, state.caseSensitive),
 	);
 }
 
@@ -234,15 +272,33 @@ export const detailSessionField = StateField.define<DetailSessionState>({
 			const from = tr.changes.mapPos(anchor.from, contentWasChanged ? -1 : 1);
 			const to = tr.changes.mapPos(anchor.to, contentWasChanged ? 1 : -1);
 			const next = { ...anchor, from, to };
-			if (anchorTextMatches(nextDoc, next, value.caseSensitive)) {
+			if (
+				next.to - next.from === next.text.length &&
+				anchorTextMatches(nextDoc, next, value.caseSensitive)
+			) {
 				mapped.push(next);
 			}
 		}
-		return { ...value, anchors: mapped };
+		return mapped.length > 0 ? { ...value, anchors: mapped } : emptySession();
 	},
 });
 
 const badgeAriaLabelFacet = Facet.define<(count: number) => string>();
+
+function buildViewDecorations(view: EditorView): DecorationSet {
+	const session = readDetailSession(view.state);
+	const doc = view.state.doc.toString();
+	if (
+		!session ||
+		!canPaintSession(session, readBoundEditorPath(view.state), doc)
+	) {
+		return Decoration.none;
+	}
+	const label =
+		view.state.facet(badgeAriaLabelFacet)[0] ??
+		((count: number) => `${count} link candidates`);
+	return buildDecorations(session, doc, label);
+}
 
 export function detailsearchLinkerEditorExtension(
 	badgeAriaLabel: (count: number) => string = (count) =>
@@ -250,25 +306,22 @@ export function detailsearchLinkerEditorExtension(
 ): Extension {
 	return [
 		detailSessionField,
+		editorBoundPathField,
 		badgeAriaLabelFacet.of(badgeAriaLabel),
-		EditorView.decorations.compute(
-			[detailSessionField, badgeAriaLabelFacet],
-			(state) => {
-				// Dynamic editor-extension reconfiguration can briefly invoke this
-				// callback for a state where the session field is not installed.
-				const session = readDetailSession(state);
-				if (!session) {
-					return Decoration.none;
+		// Rebuild from the current session+doc on every update. A computed
+		// DecorationSet is mapped through file-switch replacements and can
+		// stretch source marks across the newly opened note.
+		ViewPlugin.fromClass(
+			class {
+				decorations: DecorationSet;
+				constructor(view: EditorView) {
+					this.decorations = buildViewDecorations(view);
 				}
-				const label =
-					state.facet(badgeAriaLabelFacet)[0] ??
-					((count: number) => `${count} link candidates`);
-				return buildDecorations(
-					session,
-					state.doc.toString(),
-					label,
-				);
+				update(update: ViewUpdate) {
+					this.decorations = buildViewDecorations(update.view);
+				}
 			},
+			{ decorations: (plugin) => plugin.decorations },
 		),
 	];
 }
