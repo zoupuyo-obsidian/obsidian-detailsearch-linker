@@ -9,6 +9,8 @@ const messages = {
 		cmdSearchSelection: 'DetailSearch Linker: 選択語を他ノート本文から探す',
 		cmdSearchAuto: 'DetailSearch Linker: 現在ノートから本文リンク候補を探す',
 		cmdOpenCandidatesAtCursor: 'DetailSearch Linker: カーソル位置のリンク候補を開く',
+		cmdGoToNextHighlight: 'DetailSearch Linker: 次の強調へ移動',
+		cmdGoToPreviousHighlight: 'DetailSearch Linker: 前の強調へ移動',
 		cmdCancelSearch: 'DetailSearch Linker: 検索を中止',
 		cmdClear: 'DetailSearch Linker: 強調を消す',
 		cmdClearCache: 'DetailSearch Linker: 検索キャッシュを消去',
@@ -50,6 +52,7 @@ const messages = {
 		noticeTargetChanged: '検索後にリンク先ノートが変更されたため、リンク挿入を中止しました',
 		noticeTargetMissing: 'リンク先ノートが見つかりません',
 		noticeNoCandidatesAtCursor: 'カーソル位置にリンク候補はありません',
+		noticeNoHighlights: '強調箇所がありません',
 		noticeCacheSize: (entries: number, kb: number) =>
 			`キャッシュ: ${entries} クエリ / 約 ${kb} KB`,
 		queryModalTitle: '検索語を入力',
@@ -93,7 +96,7 @@ const messages = {
 		settingsCaseSensitiveDesc: 'オフ（既定）なら英語は大小無視',
 		settingsCacheMode: 'キャッシュ',
 		settingsCacheModeDesc:
-			'同じ検索語の再走査を減らします。永続モードは検索語、path、見出し、位置、抜粋、mtime をプラグインの data.json に保存します。ノート全文の本文は保存せず、外部送信もしません',
+			'同じ検索語の再走査を減らします。永続モードは検索語、path、見出し、位置、mtime をプラグインの data.json に保存します。抜粋とノート全文は保存せず、外部送信もしません',
 		cachePersistent: '上限付き永続',
 		cacheMemory: 'メモリのみ',
 		settingsCacheMaxMb: 'キャッシュ上限 (MB)',
@@ -147,6 +150,8 @@ const messages = {
 		cmdSearchSelection: 'DetailSearch Linker: Search selection in other note bodies',
 		cmdSearchAuto: 'DetailSearch Linker: Find body link candidates from current note',
 		cmdOpenCandidatesAtCursor: 'DetailSearch Linker: Open link candidates at cursor',
+		cmdGoToNextHighlight: 'DetailSearch Linker: Go to next highlight',
+		cmdGoToPreviousHighlight: 'DetailSearch Linker: Go to previous highlight',
 		cmdCancelSearch: 'DetailSearch Linker: Cancel search',
 		cmdClear: 'DetailSearch Linker: Clear highlights',
 		cmdClearCache: 'DetailSearch Linker: Clear search cache',
@@ -188,6 +193,7 @@ const messages = {
 		noticeTargetChanged: 'Target note changed after search; link insertion aborted',
 		noticeTargetMissing: 'Target note no longer exists',
 		noticeNoCandidatesAtCursor: 'No link candidates at the cursor',
+		noticeNoHighlights: 'No highlights in this note',
 		noticeCacheSize: (entries: number, kb: number) =>
 			`Cache: ${entries} queries / ~${kb} KB`,
 		queryModalTitle: 'Enter search term',
@@ -232,7 +238,7 @@ const messages = {
 		settingsCaseSensitiveDesc: 'Off (default): ignore case for Latin letters',
 		settingsCacheMode: 'Cache',
 		settingsCacheModeDesc:
-			'Reduces rescans for repeated terms. Persistent mode stores queries, paths, headings, offsets, excerpts, and mtimes in the plugin data.json. Full note bodies are not stored or sent externally',
+			'Reduces rescans for repeated terms. Persistent mode stores queries, paths, headings, offsets, and mtimes in the plugin data.json. Excerpts and full note bodies are not stored or sent externally',
 		cachePersistent: 'Persistent with limit',
 		cacheMemory: 'Memory only',
 		settingsCacheMaxMb: 'Cache limit (MB)',

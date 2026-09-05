@@ -3,7 +3,11 @@ export const SEARCH_CURRENT_NOTE_COMMAND_ID = 'search-current-note';
 
 export const LEGACY_COMMAND_IDS = ['search-selection', 'search-auto'] as const;
 
-export const ACCESSIBILITY_COMMAND_IDS = ['open-candidates-at-cursor'] as const;
+export const ACCESSIBILITY_COMMAND_IDS = [
+	'open-candidates-at-cursor',
+	'go-to-next-highlight',
+	'go-to-previous-highlight',
+] as const;
 
 export const DIAGNOSTIC_COMMAND_IDS = [
 	'cancel-search',
@@ -30,6 +34,8 @@ export type CommandI18nKey =
 	| 'cmdSearchSelection'
 	| 'cmdSearchAuto'
 	| 'cmdOpenCandidatesAtCursor'
+	| 'cmdGoToNextHighlight'
+	| 'cmdGoToPreviousHighlight'
 	| 'cmdCancelSearch'
 	| 'cmdClear'
 	| 'cmdClearCache';
@@ -53,6 +59,16 @@ export const COMMAND_DEFINITIONS: readonly CommandDefinition[] = [
 	{
 		id: 'open-candidates-at-cursor',
 		i18nKey: 'cmdOpenCandidatesAtCursor',
+		primary: false,
+	},
+	{
+		id: 'go-to-next-highlight',
+		i18nKey: 'cmdGoToNextHighlight',
+		primary: false,
+	},
+	{
+		id: 'go-to-previous-highlight',
+		i18nKey: 'cmdGoToPreviousHighlight',
 		primary: false,
 	},
 	{ id: 'cancel-search', i18nKey: 'cmdCancelSearch', primary: false },

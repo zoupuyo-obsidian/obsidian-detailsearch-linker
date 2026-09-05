@@ -27,6 +27,10 @@ test('legacy diagnostic commands remain registered', () => {
 	assert.ok(
 		COMMAND_DEFINITIONS.some((c) => c.id === 'open-candidates-at-cursor'),
 	);
+	assert.ok(COMMAND_DEFINITIONS.some((c) => c.id === 'go-to-next-highlight'));
+	assert.ok(
+		COMMAND_DEFINITIONS.some((c) => c.id === 'go-to-previous-highlight'),
+	);
 	assert.equal(
 		COMMAND_DEFINITIONS.find((c) => c.id === 'open-candidates-at-cursor')?.icon,
 		undefined,

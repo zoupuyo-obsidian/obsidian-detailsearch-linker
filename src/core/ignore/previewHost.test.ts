@@ -17,6 +17,7 @@ test('PreviewHost ignoreTerm callback receives query and session groupKey', () =
 			receivedQuery = query;
 			receivedKey = groupKey;
 		},
+		resolveExcerpt: (hit) => hit.excerpt,
 	};
 	host.ignoreTerm('Foo', 'foo');
 	assert.equal(receivedQuery, 'Foo');

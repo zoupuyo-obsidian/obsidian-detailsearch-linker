@@ -51,8 +51,9 @@ import {
 	type ScopedFile,
 	WorksetTracker,
 } from './core/search/scopeFilter';
+import { hydrateHitExcerpt } from './core/search/headingResolver';
 import { anchorStillValid } from './core/search/termMatch';
-import type { CancelToken } from './core/search/types';
+import type { BodyHit, CancelToken } from './core/search/types';
 import {
 	bindEditorFilePathEffect,
 	detailsearchLinkerEditorExtension,
@@ -72,7 +73,10 @@ import {
 	transitionPreviewNavigation,
 	type PreviewNavigationState,
 } from './preview/previewNavigation';
-import { resolveAnchorAtPosition } from './preview/popoverState';
+import {
+	resolveAdjacentAnchor,
+	resolveAnchorAtPosition,
+} from './preview/popoverState';
 import {
 	buildAutoSession,
 	buildSelectionSession,
@@ -84,6 +88,7 @@ import {
 	type ResultGroup,
 	type SessionAnchor,
 } from './session';
+import { SessionController } from './sessionController';
 import {
 	DetailSearchLinkerSettingTab,
 	migrateSettings,
@@ -115,7 +120,7 @@ class SearchCancelToken implements CancelToken {
 
 export default class DetailSearchLinkerPlugin extends Plugin {
 	settings!: DetailSearchLinkerSettings;
-	private session: DetailSessionState = emptySession();
+	private readonly sessions = new SessionController();
 	private readonly cache: QueryCache;
 	private readonly workset = new WorksetTracker(50);
 	private statusEl: HTMLElement | null = null;
@@ -192,13 +197,10 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 					});
 					return;
 				}
-				if (
-					live?.filePath &&
-					live.filePath === this.session.filePath &&
-					sessionMatchesDocument(live, doc)
-				) {
-					this.session = live;
-				}
+				this.sessions.adoptEditorSession(
+					live,
+					!!live?.filePath && sessionMatchesDocument(live, doc),
+				);
 			}),
 		]);
 
@@ -260,8 +262,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 						return;
 					}
 				}
-				if (this.settings.clearOnFileChange && this.session.filePath) {
-					if (!file || file.path !== this.session.filePath) {
+				if (this.settings.clearOnFileChange && this.sessions.get().filePath) {
+					if (!file || file.path !== this.sessions.get().filePath) {
 						this.clearSession(false);
 						return;
 					}
@@ -279,7 +281,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.activeSearchToken?.cancel();
 		this.hover.detach();
 		this.hoverAttachedTo = null;
-		this.session = emptySession();
+		this.sessions.clear();
 		this.allowedSessionViews = new WeakSet();
 		this.clearPreviewSyncTimers();
 		this.clearPaintLock();
@@ -360,11 +362,11 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		if (!this.hasActiveSession()) {
 			return;
 		}
-		this.session = {
-			...this.session,
+		this.sessions.update((current) => ({
+			...current,
 			style: this.settings.highlightStyle,
 			showBadge: this.settings.showBadge,
-		};
+		}));
 		this.applySessionToEditors();
 	}
 
@@ -404,6 +406,12 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				break;
 			case 'open-candidates-at-cursor':
 				this.openCandidatesAtCursor();
+				break;
+			case 'go-to-next-highlight':
+				this.goToAdjacentHighlight(1);
+				break;
+			case 'go-to-previous-highlight':
+				this.goToAdjacentHighlight(-1);
 				break;
 			default:
 				break;
@@ -1088,7 +1096,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	}
 
 	private hasActiveSession(): boolean {
-		return !!this.session.filePath && this.session.anchors.length > 0;
+		return this.sessions.hasActive();
 	}
 
 	clearSession(notify: boolean): void {
@@ -1106,7 +1114,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 
 	private beginPaintedSession(next: DetailSessionState): void {
 		this.allowedSessionViews = new WeakSet();
-		this.session = next;
+		this.sessions.replace(next);
 		if (next.filePath && next.anchors.length > 0) {
 			this.bumpPaintToken();
 		} else {
@@ -1202,6 +1210,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	}
 
 	private applySessionToEditors(): void {
+		const session = this.sessions.get();
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			if (!(leaf.view instanceof MarkdownView)) {
 				leaf.view?.containerEl?.toggleClass('detailsearch-linker-hide-marks', true);
@@ -1214,15 +1223,15 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			const doc = cm.state.doc.toString();
 			const boundPath = leaf.view.file?.path ?? '';
 			const paint = shouldApplySessionToLeaf({
-				sessionFilePath: this.session.filePath,
+				sessionFilePath: session.filePath,
 				leafFilePath: boundPath,
 				previewTargetPath: this.previewNavigation?.targetPath ?? null,
 				leafIsPendingPreviewOpen: this.pendingPreviewLeaves.has(leaf),
-				documentMatchesSession: sessionMatchesDocument(this.session, doc),
+				documentMatchesSession: sessionMatchesDocument(session, doc),
 				openingPreview: this.openingPreview,
 				editorAlreadyAllowed: this.allowedSessionViews.has(cm),
 			});
-			const state = paint ? this.session : emptySession();
+			const state = paint ? session : emptySession();
 			leaf.view.containerEl.toggleClass('detailsearch-linker-hide-marks', !paint);
 			if (paint && !this.openingPreview && !this.pendingPreviewLeaves.has(leaf)) {
 				this.allowedSessionViews.add(cm);
@@ -1256,7 +1265,11 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private attachHoverToActive(): void {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = editorView(view?.editor);
-		if (!cm || !this.session.filePath || view?.file?.path !== this.session.filePath) {
+		const session = this.sessions.get();
+		if (!cm || !session.filePath || view?.file?.path !== session.filePath) {
+			if (this.hover.hasOpenPopover()) {
+				return;
+			}
 			this.hover.detach();
 			this.hoverAttachedTo = null;
 			return;
@@ -1350,7 +1363,69 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			ignoreTerm: (query, groupKey) => {
 				void this.ignoreTerm(query, groupKey);
 			},
+			resolveExcerpt: (hit, query) => this.resolveHitExcerpt(hit, query),
 		};
+	}
+
+	private async resolveHitExcerpt(hit: BodyHit, query: string): Promise<string> {
+		if (hit.excerpt) {
+			return hit.excerpt;
+		}
+		const file = this.app.vault.getAbstractFileByPath(hit.path);
+		if (!(file instanceof TFile)) {
+			return '';
+		}
+		const content = await safeRead(
+			hit.path,
+			() => this.app.vault.cachedRead(file),
+			() => undefined,
+		);
+		if (!content) {
+			return '';
+		}
+		return hydrateHitExcerpt(
+			content,
+			hit.offset,
+			query,
+			this.liveSession().caseSensitive,
+			this.settings.excerptLength,
+		);
+	}
+
+	private goToAdjacentHighlight(direction: 1 | -1): void {
+		const lang = this.settings.uiLanguage;
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const cm = editorView(view?.editor);
+		if (!view?.file || !cm) {
+			new Notice(t(lang, 'noticeNoEditor'));
+			return;
+		}
+		const liveSession = readDetailSession(cm.state);
+		if (
+			!liveSession ||
+			liveSession.filePath !== view.file.path ||
+			liveSession.anchors.length === 0
+		) {
+			new Notice(t(lang, 'noticeNoHighlights'));
+			return;
+		}
+		const anchor = resolveAdjacentAnchor(
+			liveSession.anchors,
+			cm.state.selection.main.head,
+			direction,
+		);
+		if (!anchor) {
+			new Notice(t(lang, 'noticeNoHighlights'));
+			return;
+		}
+		cm.dispatch({
+			selection: { anchor: anchor.from },
+			scrollIntoView: true,
+		});
+		this.attachHoverToActive();
+		if (this.hover.openAnchorNow(anchor.id)) {
+			cm.contentDOM.blur();
+		}
 	}
 
 	private openCandidatesAtCursor(): void {
@@ -1377,7 +1452,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.attachHoverToActive();
 		if (!this.hover.openAnchorNow(anchor.id)) {
 			new Notice(t(lang, 'noticeNoCandidatesAtCursor'));
+			return;
 		}
+		cm.contentDOM.blur();
 	}
 
 	async ignoreTerm(query: string, groupKey: string): Promise<void> {
@@ -1400,7 +1477,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			this.settings.caseSensitive,
 		);
 		await this.saveSettings();
-		this.session = removeGroupFromSession(this.session, sessionGroupKey);
+		this.sessions.replace(removeGroupFromSession(this.sessions.get(), sessionGroupKey));
 		this.applySessionToEditors();
 		this.hover.detach();
 		this.hoverAttachedTo = null;
@@ -1414,15 +1491,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private liveSession(): DetailSessionState {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = editorView(view?.editor);
-		if (cm) {
-			const live = readDetailSession(cm.state);
-			if (live) {
-				return live;
-			}
-		}
-		return view?.file?.path === this.session.filePath
-			? this.session
-			: emptySession();
+		const live = cm ? readDetailSession(cm.state) : null;
+		return this.sessions.prefer(live, view?.file?.path);
 	}
 
 	private createLink(anchor: SessionAnchor, candidatePath: string, hitIndex: number): void {
@@ -1506,13 +1576,13 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		if (!mappedSession) {
 			return;
 		}
-		this.session = {
+		this.sessions.replace({
 			...mappedSession,
 			anchors: mappedSession.anchors.filter((item) => item.id !== live.id),
-		};
+		});
 		this.applySessionToEditors();
 		this.refreshStatus();
-		if (this.session.anchors.length === 0) {
+		if (this.sessions.get().anchors.length === 0) {
 			this.hover.detach();
 			this.hoverAttachedTo = null;
 		}
@@ -1528,7 +1598,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			this.statusEl.hide();
 			return;
 		}
-		this.statusEl.setText(tf(lang, 'statusHits', sessionStats(this.session).candidateNoteCount));
+		this.statusEl.setText(tf(lang, 'statusHits', sessionStats(this.sessions.get()).candidateNoteCount));
 		this.statusEl.setAttr('title', t(lang, 'statusClearHint'));
 		this.statusEl.show();
 	}

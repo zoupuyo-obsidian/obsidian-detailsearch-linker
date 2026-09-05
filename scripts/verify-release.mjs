@@ -1,16 +1,8 @@
 import { readFile } from 'node:fs/promises';
-
-const RELEASE_FILES = ['main.js', 'manifest.json', 'styles.css'];
+import { writeReleaseChecksums } from './releaseIntegrity.mjs';
 
 async function readJson(path) {
 	return JSON.parse(await readFile(path, 'utf8'));
-}
-
-async function requireNonemptyFile(path) {
-	const contents = await readFile(path);
-	if (contents.length === 0) {
-		throw new Error(`${path} must not be empty`);
-	}
 }
 
 const [packageJson, manifest, versions] = await Promise.all([
@@ -37,5 +29,6 @@ if (!/^[a-z0-9][a-z0-9-]*$/.test(manifest.id)) {
 	throw new Error('manifest.json id must contain only lowercase letters, numbers, and hyphens');
 }
 
-await Promise.all(RELEASE_FILES.map(requireNonemptyFile));
+const checksums = await writeReleaseChecksums('.');
 console.log(`Release metadata verified for ${manifest.id} ${manifest.version}`);
+console.log(checksums.trimEnd());

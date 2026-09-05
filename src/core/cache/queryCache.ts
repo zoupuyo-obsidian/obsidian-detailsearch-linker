@@ -32,6 +32,17 @@ export async function saveQueryCacheSnapshot(
 }
 
 export const CACHE_VERSION = 2;
+
+/** Persistent hits keep location metadata only. Excerpts stay in memory. */
+export function persistableHit(hit: BodyHit): BodyHit {
+	return {
+		path: hit.path,
+		heading: hit.heading,
+		offset: hit.offset,
+		excerpt: '',
+		mtime: hit.mtime,
+	};
+}
 export const LRU_EVICT_RATIO = 0.9;
 
 export interface QueryCacheOptions {
@@ -68,6 +79,7 @@ export class QueryCache {
 			if (entry?.key && Array.isArray(entry.hits)) {
 				this.entries.set(entry.key, {
 					...entry,
+					hits: entry.hits.map(persistableHit),
 					lastAccess: entry.lastAccess ?? 0,
 					scannedGeneration: entry.scannedGeneration ?? 0,
 				});
@@ -84,7 +96,7 @@ export class QueryCache {
 				.filter((entry) => !this.nonPersistentKeys.has(entry.key))
 				.map((entry) => ({
 					...entry,
-					hits: entry.hits.map((hit) => ({ ...hit })),
+					hits: entry.hits.map(persistableHit),
 				})),
 		};
 	}
@@ -252,7 +264,7 @@ export class QueryCache {
 	private estimateEntry(entry: CacheEntry): number {
 		let size = entry.key.length * 2 + 48;
 		for (const hit of entry.hits) {
-			size += (hit.path.length + hit.heading.length + hit.excerpt.length) * 2 + 32;
+			size += (hit.path.length + hit.heading.length) * 2 + 32;
 		}
 		return size;
 	}

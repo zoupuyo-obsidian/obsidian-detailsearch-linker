@@ -1,4 +1,5 @@
 import { Platform } from 'obsidian';
+import type { BodyHit } from '../core/search/types';
 import { getGroup, type DetailSessionState, type NoteCandidate, type ResultGroup, type SessionAnchor } from '../session';
 import { t } from '../i18n';
 import type { UiLanguage } from '../settings';
@@ -8,6 +9,8 @@ import {
 	normalizePopoverFocus,
 	resolveHoverSchedule,
 	resolvePopoverActionTarget,
+	shouldConsumeArmedKey,
+	stepFocusableIndex,
 } from './popoverState';
 
 export interface PreviewHost {
@@ -18,6 +21,7 @@ export interface PreviewHost {
 	clearSession(): void;
 	hasActiveSession(): boolean;
 	ignoreTerm(query: string, groupKey: string): void;
+	resolveExcerpt(hit: BodyHit, query: string): string | Promise<string>;
 }
 
 const SHOW_DELAY_MS = 280;
@@ -36,6 +40,8 @@ export class DetailHoverController {
 	private suppressMouseUntil = 0;
 	private opener: HTMLElement | null = null;
 	private editorDom: HTMLElement | null = null;
+	private keyboardArmed = false;
+	private stickyOpen = false;
 
 	attach(editorDom: HTMLElement, host: PreviewHost): void {
 		this.detach();
@@ -55,12 +61,20 @@ export class DetailHoverController {
 					this.clearHide();
 					return;
 				}
+				if (this.stickyOpen) {
+					return;
+				}
 				this.scheduleHide();
 				return;
 			}
 			this.scheduleShow(id, evt.clientX, evt.clientY);
 		};
-		const onLeave = (): void => this.scheduleHide();
+		const onLeave = (): void => {
+			if (this.stickyOpen) {
+				return;
+			}
+			this.scheduleHide();
+		};
 
 		const onClick = (evt: MouseEvent): void => {
 			const id = findAnchorIdFromEventTarget(evt.target);
@@ -82,50 +96,74 @@ export class DetailHoverController {
 			const rect = opener?.getBoundingClientRect();
 			const x = evt.clientX || rect?.left || 0;
 			const y = evt.clientY || rect?.bottom || 0;
+			this.keyboardArmed = true;
+			this.stickyOpen = true;
 			void this.show(id, x, y, opener);
 		};
 
 		const onKeyDown = (evt: KeyboardEvent): void => {
-			if (evt.key !== 'Escape' || !this.popover) {
+			this.handlePopoverKey(evt);
+		};
+		const onEditorPointerDown = (evt: PointerEvent): void => {
+			if (findAnchorIdFromEventTarget(evt.target)) {
 				return;
 			}
-			evt.preventDefault();
-			evt.stopPropagation();
-			const opener = this.opener;
-			this.hide();
-			opener?.focus();
+			this.stickyOpen = false;
+			this.keyboardArmed = false;
+			if (this.popover) {
+				this.hide({ restoreEditorFocus: false });
+			}
 		};
 
 		editorDom.addEventListener('mousemove', onMove);
 		editorDom.addEventListener('mouseleave', onLeave);
 		editorDom.addEventListener('click', onClick, true);
+		editorDom.addEventListener('pointerdown', onEditorPointerDown);
 		editorDom.ownerDocument.addEventListener('keydown', onKeyDown, true);
 
 		this.cleanupDom = () => {
 			editorDom.removeEventListener('mousemove', onMove);
 			editorDom.removeEventListener('mouseleave', onLeave);
 			editorDom.removeEventListener('click', onClick, true);
+			editorDom.removeEventListener('pointerdown', onEditorPointerDown);
 			editorDom.ownerDocument.removeEventListener('keydown', onKeyDown, true);
 		};
 	}
 
 	detach(): void {
-		this.hide();
+		this.hide({ restoreEditorFocus: false });
 		this.cleanupDom?.();
 		this.cleanupDom = null;
 		this.host = null;
 		this.editorDom = null;
 	}
 
-	hide(): void {
+	hide(options: { restoreEditorFocus?: boolean } = {}): void {
+		const popover = this.popover;
+		const active = popover?.ownerDocument.activeElement;
+		const restoreEditorFocus =
+			options.restoreEditorFocus !== false &&
+			!!popover &&
+			active instanceof Node &&
+			popover.contains(active);
 		this.clearShow();
 		this.clearHide();
-		this.popover?.remove();
+		popover?.remove();
 		this.popover = null;
 		this.activeAnchorId = null;
 		this.focusedPath = '';
 		this.focusedHitIndex = 0;
 		this.opener = null;
+		this.keyboardArmed = false;
+		this.stickyOpen = false;
+		this.suppressMouseUntil = 0;
+		if (restoreEditorFocus) {
+			this.focusEditor();
+		}
+	}
+
+	hasOpenPopover(): boolean {
+		return !!this.popover;
 	}
 
 	openAnchorNow(id: string): boolean {
@@ -139,6 +177,8 @@ export class DetailHoverController {
 			? anchorEl
 			: this.findAnchorElement(id, '.cm-detailsearch-linker-badge');
 		const rect = anchorEl.getBoundingClientRect();
+		this.keyboardArmed = true;
+		this.stickyOpen = true;
 		void this.show(id, rect.left, rect.bottom, badge);
 		return true;
 	}
@@ -208,6 +248,7 @@ export class DetailHoverController {
 		this.clearHide();
 		this.activeAnchorId = id;
 		this.opener = opener;
+		this.keyboardArmed = true;
 		const focus = normalizePopoverFocus(group, {
 			path: this.focusedPath,
 			hitIndex: this.focusedHitIndex,
@@ -229,10 +270,27 @@ export class DetailHoverController {
 		const doc = activeDocument;
 		const pop = doc.body.createDiv({ cls: 'detailsearch-linker-popover' });
 		pop.setAttr('role', 'dialog');
+		pop.tabIndex = -1;
 		this.popover = pop;
 
 		pop.addEventListener('mouseenter', () => this.clearHide());
-		pop.addEventListener('mouseleave', () => this.scheduleHide());
+		pop.addEventListener('mouseleave', () => {
+			if (this.stickyOpen) {
+				return;
+			}
+			this.scheduleHide();
+		});
+		pop.addEventListener('pointerdown', () => {
+			this.keyboardArmed = true;
+			this.stickyOpen = true;
+		});
+		pop.addEventListener('focusin', (evt) => {
+			this.keyboardArmed = true;
+			if (evt.target instanceof HTMLElement) {
+				this.syncSelectionFromElement(evt.target, true);
+			}
+		});
+		pop.addEventListener('keydown', (evt) => this.handlePopoverKey(evt), true);
 
 		const lang = host.getLang();
 		pop.createDiv({ cls: 'detailsearch-linker-popover__match', text: anchor.text });
@@ -250,6 +308,7 @@ export class DetailHoverController {
 				cls: 'detailsearch-linker-popover__row',
 				type: 'button',
 			});
+			row.dataset.candidatePath = candidate.path;
 			if (candidate.path === this.focusedPath) {
 				row.addClass('is-focused');
 			}
@@ -266,21 +325,7 @@ export class DetailHoverController {
 			row.addEventListener('click', () => {
 				this.focusedPath = candidate.path;
 				this.focusedHitIndex = 0;
-				const freshSession = host.getSession();
-				const freshAnchor = freshSession.anchors.find((item) => item.id === anchor.id);
-				const freshGroup = freshAnchor
-					? getGroup(freshSession, freshAnchor.groupKey)
-					: undefined;
-				if (!freshAnchor || !freshGroup) {
-					return;
-				}
-				const focus = normalizePopoverFocus(freshGroup, {
-					path: this.focusedPath,
-					hitIndex: this.focusedHitIndex,
-				});
-				this.focusedPath = focus.path;
-				this.focusedHitIndex = focus.hitIndex;
-				void this.render(freshAnchor, freshGroup, freshSession, host, x, y);
+				this.refreshPreviewInPlace();
 			});
 		}
 
@@ -294,8 +339,6 @@ export class DetailHoverController {
 				group,
 				host,
 				anchor.id,
-				x,
-				y,
 			);
 		}
 
@@ -304,6 +347,7 @@ export class DetailHoverController {
 			cls: 'mod-cta',
 			text: t(lang, 'createLink'),
 		});
+		linkBtn.dataset.action = 'create-link';
 		linkBtn.disabled =
 			!group.canLink ||
 			!resolvePopoverActionTarget(
@@ -326,6 +370,7 @@ export class DetailHoverController {
 			host.createLink(target.anchor, target.candidate.path, target.hitIndex);
 		});
 		const openBtn = actions.createEl('button', { text: t(lang, 'openNote') });
+		openBtn.dataset.action = 'open-note';
 		openBtn.disabled = !resolvePopoverActionTarget(
 			session,
 			anchor.id,
@@ -359,6 +404,209 @@ export class DetailHoverController {
 		});
 
 		this.position(pop, x, y);
+		this.focusArmedControl();
+	}
+
+	private handlePopoverKey(evt: KeyboardEvent): void {
+		if (!this.popover || evt.defaultPrevented) {
+			return;
+		}
+		if (evt.key === 'Escape') {
+			evt.preventDefault();
+			evt.stopPropagation();
+			this.hide();
+			return;
+		}
+		const active = this.popover.ownerDocument.activeElement;
+		const popoverHasFocus = active instanceof Node && this.popover.contains(active);
+		if (!this.keyboardArmed && !popoverHasFocus) {
+			return;
+		}
+		if (this.handleArmedKey(evt)) {
+			evt.preventDefault();
+			evt.stopPropagation();
+		}
+	}
+
+	private handleArmedKey(evt: KeyboardEvent): boolean {
+		if (evt.ctrlKey || evt.metaKey || evt.altKey) {
+			return false;
+		}
+		const targetInsidePopover =
+			evt.target instanceof Node && !!this.popover?.contains(evt.target);
+		if (
+			!shouldConsumeArmedKey(evt.key, {
+				isComposing: evt.isComposing,
+				targetInsidePopover,
+			})
+		) {
+			return false;
+		}
+		if (
+			evt.key === 'ArrowDown' ||
+			evt.key === 'ArrowUp' ||
+			evt.key === 'ArrowRight' ||
+			evt.key === 'ArrowLeft'
+		) {
+			this.stepArmedFocusable(
+				evt.key === 'ArrowDown' || evt.key === 'ArrowRight' ? 1 : -1,
+			);
+			return true;
+		}
+		if (evt.key === 'Tab') {
+			this.stepArmedFocusable(evt.shiftKey ? -1 : 1);
+			return true;
+		}
+		return true;
+	}
+
+	private focusEditor(): void {
+		if (!this.editorDom?.isConnected) {
+			return;
+		}
+		this.editorDom.querySelector<HTMLElement>('.cm-content')?.focus();
+	}
+
+	private stepArmedFocusable(direction: 1 | -1): void {
+		this.clearHide();
+		const items = this.popoverFocusables();
+		const active = this.popover?.ownerDocument.activeElement;
+		const current = items.findIndex((item) => item === active);
+		const nextIndex = stepFocusableIndex(items.length, current, direction);
+		const next = items[nextIndex];
+		if (!next) {
+			return;
+		}
+		next.focus();
+		this.syncSelectionFromElement(next, true);
+	}
+
+	private popoverFocusables(): HTMLElement[] {
+		return Array.from(
+			this.popover?.querySelectorAll<HTMLElement>('button:not([disabled])') ?? [],
+		);
+	}
+
+	private syncSelectionFromElement(
+		element: HTMLElement,
+		refreshWhenChanged: boolean,
+	): void {
+		const row = element.closest('.detailsearch-linker-popover__row');
+		if (row instanceof HTMLElement && row.dataset.candidatePath) {
+			const path = row.dataset.candidatePath;
+			if (path !== this.focusedPath) {
+				this.focusedPath = path;
+				this.focusedHitIndex = 0;
+				if (refreshWhenChanged) {
+					this.refreshPreviewInPlace();
+					this.focusCandidateRow(path);
+				}
+			}
+			return;
+		}
+		const hitBtn = element.closest('.detailsearch-linker-popover__hits button');
+		if (hitBtn instanceof HTMLElement && hitBtn.dataset.hitIndex !== undefined) {
+			const hitIndex = Number(hitBtn.dataset.hitIndex);
+			if (!Number.isNaN(hitIndex) && hitIndex !== this.focusedHitIndex) {
+				this.focusedHitIndex = hitIndex;
+				if (refreshWhenChanged) {
+					this.refreshPreviewInPlace();
+					this.focusHitButton(hitIndex);
+				}
+			}
+		}
+	}
+
+	private refreshPreviewInPlace(): void {
+		const pop = this.popover;
+		const host = this.host;
+		const session = host?.getSession();
+		const anchor = session?.anchors.find((item) => item.id === this.activeAnchorId);
+		const group = anchor && session ? getGroup(session, anchor.groupKey) : undefined;
+		if (!pop || !host || !session || !anchor || !group) {
+			return;
+		}
+		const focus = normalizePopoverFocus(group, {
+			path: this.focusedPath,
+			hitIndex: this.focusedHitIndex,
+		});
+		this.focusedPath = focus.path;
+		this.focusedHitIndex = focus.hitIndex;
+		const rows = Array.from(
+			pop.querySelectorAll<HTMLElement>('.detailsearch-linker-popover__row'),
+		);
+		for (const row of rows) {
+			row.classList.toggle('is-focused', row.dataset.candidatePath === this.focusedPath);
+		}
+		const focused = group.candidates.find((item) => item.path === this.focusedPath);
+		const preview = pop.querySelector<HTMLElement>('.detailsearch-linker-popover__preview');
+		if (preview && focused) {
+			this.renderHitPreview(
+				preview,
+				focused,
+				this.focusedHitIndex,
+				group,
+				host,
+				anchor.id,
+			);
+		}
+		const canAct = !!resolvePopoverActionTarget(
+			session,
+			anchor.id,
+			this.focusedPath,
+			this.focusedHitIndex,
+		);
+		const actions = pop.querySelector('.detailsearch-linker-popover__actions');
+		const linkBtn = actions?.querySelector<HTMLButtonElement>(
+			'button[data-action="create-link"]',
+		);
+		const openBtn = actions?.querySelector<HTMLButtonElement>(
+			'button[data-action="open-note"]',
+		);
+		if (linkBtn) {
+			linkBtn.disabled = !group.canLink || !canAct;
+		}
+		if (openBtn) {
+			openBtn.disabled = !canAct;
+		}
+	}
+
+	private focusCandidateRow(path: string): void {
+		const rows = this.popover?.querySelectorAll<HTMLElement>(
+			'.detailsearch-linker-popover__row',
+		);
+		const row = rows
+			? Array.from(rows).find((item) => item.dataset.candidatePath === path)
+			: undefined;
+		row?.focus();
+	}
+
+	private focusHitButton(hitIndex: number): void {
+		this.popover
+			?.querySelector<HTMLElement>(
+				`.detailsearch-linker-popover__hits button[data-hit-index="${hitIndex}"]`,
+			)
+			?.focus();
+	}
+
+	private focusArmedControl(): void {
+		const focused =
+			this.popover?.querySelector<HTMLElement>(
+				'.detailsearch-linker-popover__row.is-focused',
+			) ?? this.popover?.querySelector<HTMLElement>('button');
+		focused?.focus();
+		window.requestAnimationFrame(() => {
+			if (!this.keyboardArmed || !this.popover) {
+				return;
+			}
+			const still =
+				this.popover.querySelector<HTMLElement>(
+					'.detailsearch-linker-popover__row.is-focused',
+				) ?? this.popover.querySelector<HTMLElement>('button');
+			if (still && this.popover.ownerDocument.activeElement !== still) {
+				still.focus();
+			}
+		});
 	}
 
 	private renderHitPreview(
@@ -368,8 +616,6 @@ export class DetailHoverController {
 		group: ResultGroup,
 		host: PreviewHost,
 		anchorId: string,
-		x: number,
-		y: number,
 	): void {
 		container.empty();
 		const hits = candidate.hits;
@@ -380,6 +626,7 @@ export class DetailHoverController {
 					text: hit.heading || `#${i + 1}`,
 					type: 'button',
 				});
+				btn.dataset.hitIndex = String(i);
 				if (i === hitIndex) {
 					btn.addClass('is-active');
 				}
@@ -396,14 +643,7 @@ export class DetailHoverController {
 					}
 					this.focusedPath = target.candidate.path;
 					this.focusedHitIndex = target.hitIndex;
-					void this.render(
-						target.anchor,
-						target.group,
-						freshSession,
-						host,
-						x,
-						y,
-					);
+					this.refreshPreviewInPlace();
 				});
 			});
 		}
@@ -419,13 +659,24 @@ export class DetailHoverController {
 		}
 		const excerptEl = container.createDiv();
 		const liveSession = host.getSession();
-		fillHighlightedExcerpt(
-			excerptEl,
-			hit.excerpt,
-			group.query,
-			liveSession.caseSensitive,
-			liveSession.style,
-		);
+		const applyExcerpt = (excerpt: string): void => {
+			if (this.activeAnchorId !== anchorId || !this.popover?.contains(excerptEl)) {
+				return;
+			}
+			excerptEl.empty();
+			fillHighlightedExcerpt(
+				excerptEl,
+				excerpt,
+				group.query,
+				liveSession.caseSensitive,
+				liveSession.style,
+			);
+		};
+		if (hit.excerpt) {
+			applyExcerpt(hit.excerpt);
+			return;
+		}
+		void Promise.resolve(host.resolveExcerpt(hit, group.query)).then(applyExcerpt);
 	}
 
 	private position(pop: HTMLElement, x: number, y: number): void {

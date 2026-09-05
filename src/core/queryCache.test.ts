@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { QueryCache, saveQueryCacheSnapshot } from './cache/queryCache.ts';
+import { QueryCache, persistableHit, saveQueryCacheSnapshot } from './cache/queryCache.ts';
 import { ManifestStore } from './cache/manifestStore.ts';
 import { mergeCacheHits } from './search/bodyScanner.ts';
 
@@ -16,6 +16,46 @@ test('warm cache entry stores hits without body', () => {
 	const got = cache.get(key);
 	assert.equal(got?.hits.length, 1);
 	assert.equal(got?.hits[0]!.path, 'n.md');
+	assert.equal(got?.hits[0]!.excerpt, '…');
+});
+
+test('exportPayload and load strip excerpts from persistent hits', () => {
+	const cache = new QueryCache({ mode: 'persistent', maxBytes: 1024 * 1024 });
+	const key = cache.makeKey('救急', false, 'scope-a');
+	cache.set(key, {
+		hits: [{ path: 'n.md', heading: 'H', offset: 1, excerpt: 'secret snippet', mtime: 10 }],
+		scopeFingerprint: 'scope-a',
+		caseSensitive: false,
+		scannedGeneration: 1,
+	});
+	const exported = cache.exportPayload();
+	assert.equal(exported.entries[0]!.hits[0]!.excerpt, '');
+	assert.equal(exported.entries[0]!.hits[0]!.path, 'n.md');
+	assert.deepEqual(persistableHit({
+		path: 'n.md',
+		heading: 'H',
+		offset: 1,
+		excerpt: 'secret snippet',
+		mtime: 10,
+	}).excerpt, '');
+
+	const restored = new QueryCache({ mode: 'persistent', maxBytes: 1024 * 1024 });
+	restored.load({
+		version: 2,
+		manifest: { generation: 1, files: {} },
+		entries: [
+			{
+				key,
+				hits: [{ path: 'n.md', heading: 'H', offset: 1, excerpt: 'legacy excerpt', mtime: 10 }],
+				lastAccess: 1,
+				scopeFingerprint: 'scope-a',
+				caseSensitive: false,
+				scannedGeneration: 1,
+			},
+		],
+	});
+	assert.equal(restored.get(key)?.hits[0]!.excerpt, '');
+	assert.equal(restored.get(key)?.hits[0]!.heading, 'H');
 });
 
 test('get marks cache dirty in persistent mode for LRU', () => {
@@ -91,7 +131,7 @@ test('oversized entry stays in memory but excluded from export', () => {
 	const cache = new QueryCache({ mode: 'persistent', maxBytes: 200 });
 	const key = cache.makeKey('big', false, 's');
 	cache.set(key, {
-		hits: [{ path: 'x.md', heading: '', offset: 0, excerpt: 'z'.repeat(300), mtime: 1 }],
+		hits: [{ path: `${'x'.repeat(200)}.md`, heading: '', offset: 0, excerpt: '', mtime: 1 }],
 		scopeFingerprint: 's',
 		caseSensitive: false,
 		scannedGeneration: 1,
@@ -107,14 +147,14 @@ test('LRU evicts oldest persistent entries', () => {
 	const keyA = cache.makeKey('a', false, 's');
 	const keyB = cache.makeKey('b', false, 's');
 	cache.set(keyA, {
-		hits: [{ path: '1.md', heading: '', offset: 0, excerpt: 'x'.repeat(80), mtime: 1 }],
+		hits: [{ path: `${'x'.repeat(80)}.md`, heading: '', offset: 0, excerpt: '', mtime: 1 }],
 		scopeFingerprint: 's',
 		caseSensitive: false,
 		scannedGeneration: 1,
 		lastAccess: 1,
 	});
 	cache.set(keyB, {
-		hits: [{ path: '2.md', heading: '', offset: 0, excerpt: 'y'.repeat(80), mtime: 1 }],
+		hits: [{ path: `${'y'.repeat(80)}.md`, heading: '', offset: 0, excerpt: '', mtime: 1 }],
 		scopeFingerprint: 's',
 		caseSensitive: false,
 		scannedGeneration: 1,
@@ -131,7 +171,7 @@ test('active key set pins multiple entries from LRU eviction', () => {
 	cache.pinActiveKeys(keys);
 	for (const [i, key] of keys.entries()) {
 		cache.set(key, {
-			hits: [{ path: `${i}.md`, heading: '', offset: 0, excerpt: 'z'.repeat(120), mtime: 1 }],
+			hits: [{ path: `${'z'.repeat(120)}${i}.md`, heading: '', offset: 0, excerpt: '', mtime: 1 }],
 			scopeFingerprint: 's',
 			caseSensitive: false,
 			scannedGeneration: 1,
@@ -140,7 +180,7 @@ test('active key set pins multiple entries from LRU eviction', () => {
 	}
 	for (let i = 0; i < 6; i++) {
 		cache.set(cache.makeKey(`other${i}`, false, 's'), {
-			hits: [{ path: `o${i}.md`, heading: '', offset: 0, excerpt: 'y'.repeat(120), mtime: 1 }],
+			hits: [{ path: `${'y'.repeat(120)}o${i}.md`, heading: '', offset: 0, excerpt: '', mtime: 1 }],
 			scopeFingerprint: 's',
 			caseSensitive: false,
 			scannedGeneration: 1,

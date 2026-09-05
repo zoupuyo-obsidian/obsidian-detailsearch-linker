@@ -1,4 +1,5 @@
 import { covers, findProtectedSpans } from '../protectedSpans';
+import { findTermOccurrences } from './termMatch';
 
 export interface Heading {
 	level: number;
@@ -83,4 +84,26 @@ export function buildExcerpt(
 		excerpt = `${excerpt}…`;
 	}
 	return excerpt;
+}
+
+/** Rebuild a preview excerpt from a cached hit that no longer stores text. */
+export function hydrateHitExcerpt(
+	text: string,
+	offset: number,
+	query: string,
+	caseSensitive: boolean,
+	maxLen: number,
+): string {
+	if (!text || offset < 0 || offset > text.length) {
+		return '';
+	}
+	const occurrences = findTermOccurrences(text, query, caseSensitive, []);
+	const match =
+		occurrences.find((item) => item.from === offset) ??
+		occurrences.find((item) => item.from <= offset && offset < item.to);
+	const from = match?.from ?? offset;
+	const to =
+		match?.to ??
+		Math.min(text.length, offset + Math.max(query.trim().length, 1));
+	return buildExcerpt(text, from, to, maxLen);
 }

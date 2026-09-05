@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { findHeadings, nearestHeading } from './search/headingResolver.ts';
+import { findHeadings, hydrateHitExcerpt, nearestHeading } from './search/headingResolver.ts';
 
 test('finds ATX headings outside code', () => {
 	const text = '# Title\n\n## Section\n\n```\n# fake\n```\n\n### Real';
@@ -62,4 +62,21 @@ test('does not treat protected markdown link text as Setext heading', () => {
 test('does not treat four-space indented text as a Setext heading', () => {
 	const text = '    indented code\n---\nbody';
 	assert.deepEqual(findHeadings(text), []);
+});
+
+test('hydrateHitExcerpt rebuilds a window around a cached offset', () => {
+	const text = `${'alpha '.repeat(20)}target${' omega'.repeat(20)}`;
+	const offset = text.indexOf('target');
+	const excerpt = hydrateHitExcerpt(text, offset, 'target', false, 80);
+	assert.ok(excerpt.includes('target'));
+	assert.ok(excerpt.startsWith('…'));
+	assert.ok(excerpt.endsWith('…'));
+	assert.ok(excerpt.length < text.length);
+});
+
+test('hydrateHitExcerpt maps an expanded case fold back to the source range', () => {
+	const text = 'İ target after';
+	const offset = text.indexOf('target');
+	const excerpt = hydrateHitExcerpt(text, offset, 'target', false, 40);
+	assert.ok(excerpt.includes('target'));
 });

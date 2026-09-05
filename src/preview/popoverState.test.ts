@@ -2,8 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
 	normalizePopoverFocus,
+	resolveAdjacentAnchor,
 	resolveAnchorAtPosition,
 	resolveHoverSchedule,
+	stepPopoverFocus,
+	stepFocusableIndex,
+	shouldConsumeArmedKey,
 	resolvePopoverActionTarget,
 } from './popoverState.ts';
 import {
@@ -109,4 +113,70 @@ test('resolves cursor boundaries and chooses the smallest containing anchor', ()
 	assert.equal(resolveAnchorAtPosition(anchors, 8)?.id, 'small-a');
 	assert.equal(resolveAnchorAtPosition(anchors, 12)?.id, 'wide');
 	assert.equal(resolveAnchorAtPosition(anchors, 13), null);
+});
+
+test('resolveAdjacentAnchor walks document order and wraps', () => {
+	const anchors = [
+		{ id: 'first', from: 2, to: 5, text: 'one', groupKey: 'one' },
+		{ id: 'second', from: 10, to: 14, text: 'two', groupKey: 'two' },
+		{ id: 'third', from: 20, to: 24, text: 'three', groupKey: 'three' },
+	];
+	assert.equal(resolveAdjacentAnchor([], 0, 1), null);
+	assert.equal(resolveAdjacentAnchor(anchors, 3, 1)?.id, 'second');
+	assert.equal(resolveAdjacentAnchor(anchors, 3, -1)?.id, 'third');
+	assert.equal(resolveAdjacentAnchor(anchors, 7, 1)?.id, 'second');
+	assert.equal(resolveAdjacentAnchor(anchors, 7, -1)?.id, 'first');
+	assert.equal(resolveAdjacentAnchor(anchors, 30, 1)?.id, 'first');
+	assert.equal(resolveAdjacentAnchor(anchors, 0, -1)?.id, 'third');
+	assert.equal(resolveAdjacentAnchor(anchors, 22, 1)?.id, 'first');
+});
+
+test('stepPopoverFocus wraps candidates and hits', () => {
+	const notes = group('g', [
+		candidate('a.md', ['A1', 'A2']),
+		candidate('b.md', ['B1']),
+	]);
+	assert.deepEqual(
+		stepPopoverFocus(notes, { path: 'a.md', hitIndex: 0 }, 'candidate', 1),
+		{ path: 'b.md', hitIndex: 0 },
+	);
+	assert.deepEqual(
+		stepPopoverFocus(notes, { path: 'a.md', hitIndex: 0 }, 'candidate', -1),
+		{ path: 'b.md', hitIndex: 0 },
+	);
+	assert.deepEqual(
+		stepPopoverFocus(notes, { path: 'a.md', hitIndex: 0 }, 'hit', 1),
+		{ path: 'a.md', hitIndex: 1 },
+	);
+	assert.deepEqual(
+		stepPopoverFocus(notes, { path: 'a.md', hitIndex: 1 }, 'hit', 1),
+		{ path: 'a.md', hitIndex: 0 },
+	);
+});
+
+test('shouldConsumeArmedKey blocks typing and IME while allowing popover buttons', () => {
+	assert.equal(shouldConsumeArmedKey('a'), true);
+	assert.equal(shouldConsumeArmedKey('あ'), true);
+	assert.equal(shouldConsumeArmedKey('Backspace'), true);
+	assert.equal(shouldConsumeArmedKey('ArrowDown'), true);
+	assert.equal(shouldConsumeArmedKey('Process', { isComposing: true }), true);
+	assert.equal(
+		shouldConsumeArmedKey('Enter', { targetInsidePopover: false }),
+		true,
+	);
+	assert.equal(
+		shouldConsumeArmedKey('Enter', { targetInsidePopover: true }),
+		false,
+	);
+	assert.equal(shouldConsumeArmedKey('Tab', { targetInsidePopover: true }), true);
+	assert.equal(shouldConsumeArmedKey('Tab', { targetInsidePopover: false }), true);
+	assert.equal(shouldConsumeArmedKey('Escape'), false);
+});
+
+test('stepFocusableIndex wraps and starts from an end when nothing is focused', () => {
+	assert.equal(stepFocusableIndex(0, 0, 1), -1);
+	assert.equal(stepFocusableIndex(3, -1, 1), 0);
+	assert.equal(stepFocusableIndex(3, -1, -1), 2);
+	assert.equal(stepFocusableIndex(3, 2, 1), 0);
+	assert.equal(stepFocusableIndex(3, 0, -1), 2);
 });
