@@ -12,14 +12,15 @@ export function capHitsByNoteCount(hits: BodyHit[], maxCandidateNotes: number): 
 		byPath.set(hit.path, list);
 	}
 	const out: BodyHit[] = [];
+	let keptPathCount = 0;
 	for (const path of [...byPath.keys()].sort()) {
-		const keptPaths = new Set(out.map((h) => h.path));
-		if (keptPaths.size >= maxCandidateNotes && !keptPaths.has(path)) {
+		if (keptPathCount >= maxCandidateNotes) {
 			break;
 		}
 		for (const hit of byPath.get(path) ?? []) {
 			out.push(hit);
 		}
+		keptPathCount++;
 	}
 	return out;
 }

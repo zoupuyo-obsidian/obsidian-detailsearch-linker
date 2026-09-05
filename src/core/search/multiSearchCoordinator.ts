@@ -51,13 +51,25 @@ export interface MultiSearchResult {
 	anyPartial: boolean;
 }
 
-function mergePathHits(
+export function mergeUpdatedPathHits(
 	existing: BodyHit[],
-	path: string,
-	pathHits: BodyHit[],
+	updatedPathHits: ReadonlyMap<string, BodyHit[]>,
+	scopePaths: ReadonlySet<string>,
 ): BodyHit[] {
-	const kept = existing.filter((h) => h.path !== path);
-	return [...kept, ...pathHits].sort(
+	const merged: BodyHit[] = [];
+	for (const hit of existing) {
+		if (scopePaths.has(hit.path) && !updatedPathHits.has(hit.path)) {
+			merged.push(hit);
+		}
+	}
+	for (const pathHits of updatedPathHits.values()) {
+		for (const hit of pathHits) {
+			if (scopePaths.has(hit.path)) {
+				merged.push(hit);
+			}
+		}
+	}
+	return merged.sort(
 		(a, b) => a.path.localeCompare(b.path) || a.offset - b.offset,
 	);
 }
@@ -76,6 +88,12 @@ export class MultiSearchCoordinator {
 		const { terms, scopeSettings, scopedFiles, scanOptions } = input;
 		const scopeFp = scopeFingerprint(scopeSettings);
 		const scopePaths = new Set(scopedFiles.map((f) => f.path));
+		const scopedFilesByPath = new Map<string, ScopedFile>();
+		for (const file of scopedFiles) {
+			if (!scopedFilesByPath.has(file.path)) {
+				scopedFilesByPath.set(file.path, file);
+			}
+		}
 		const currentGeneration = this.cache.manifest.reconcile(
 			scopedFiles.map((f) => ({ path: f.path, mtime: f.statMtime })),
 		);
@@ -92,6 +110,8 @@ export class MultiSearchCoordinator {
 		}
 
 		const plans: Plan[] = [];
+		const plansByKey = new Map<string, Plan>();
+		const plansByCacheKey = new Map<string, Plan>();
 		const pathToTerms = new Map<string, TermScanSpec[]>();
 
 		for (const term of terms) {
@@ -110,7 +130,7 @@ export class MultiSearchCoordinator {
 				pathToTerms.set(path, list);
 			}
 
-			plans.push({
+			const plan: Plan = {
 				key: term.key,
 				query: term.query,
 				caseSensitive: term.caseSensitive,
@@ -119,16 +139,24 @@ export class MultiSearchCoordinator {
 				pathsToScan,
 				scannedGeneration: cached?.scannedGeneration ?? 0,
 				hadCache: !!cached,
-			});
+			};
+			plans.push(plan);
+			if (!plansByKey.has(plan.key)) {
+				plansByKey.set(plan.key, plan);
+			}
+			if (!plansByCacheKey.has(plan.cacheKey)) {
+				plansByCacheKey.set(plan.cacheKey, plan);
+			}
 		}
 
 		const pathsToRead = [...pathToTerms.keys()];
 		const readPaths: string[] = [];
 		const readCountByPath = new Map<string, number>();
 		const pending = new Map<string, Map<string, BodyHit[]>>();
-		const failedPaths = new Set<string>();
-		for (const plan of plans) {
-			pending.set(plan.cacheKey, new Map());
+		const failedPathsByCacheKey = new Map<string, Set<string>>();
+		for (const cacheKey of plansByCacheKey.keys()) {
+			pending.set(cacheKey, new Map());
+			failedPathsByCacheKey.set(cacheKey, new Set());
 		}
 
 		const pinnedKeys = plans.map((p) => p.cacheKey);
@@ -157,11 +185,16 @@ export class MultiSearchCoordinator {
 				done++;
 				scanOptions.onProgress?.(done, total);
 				if (!loaded) {
-					failedPaths.add(path);
+					for (const term of termsForPath) {
+						const plan = plansByKey.get(term.key);
+						if (plan) {
+							failedPathsByCacheKey.get(plan.cacheKey)?.add(path);
+						}
+					}
 					return;
 				}
 				filesRead++;
-				const file = scopedFiles.find((f) => f.path === path);
+				const file = scopedFilesByPath.get(path);
 				const mtime = file?.statMtime ?? loaded.mtime;
 				const hitsByTerm = await scanFileMultiTermsAsync(
 					{ path, content: loaded.content, mtime },
@@ -179,7 +212,7 @@ export class MultiSearchCoordinator {
 					return;
 				}
 				for (const term of termsForPath) {
-					const plan = plans.find((p) => p.key === term.key);
+					const plan = plansByKey.get(term.key);
 					if (!plan) {
 						continue;
 					}
@@ -207,19 +240,13 @@ export class MultiSearchCoordinator {
 
 			if (!cancelled(scanOptions.token)) {
 				for (const plan of plans) {
-					let hits = [...plan.existingHits];
-					for (const path of plan.pathsToScan) {
-						const pathHits = pending.get(plan.cacheKey)?.get(path);
-						if (!pathHits) {
-							continue;
-						}
-						hits = mergePathHits(hits, path, pathHits);
-					}
-					hits = filterHitsToScope(hits, scopePaths);
-					hits = capHitsByNoteCount(hits, scanOptions.maxCandidateNotes);
-					const planFailedPaths = new Set(
-						[...failedPaths].filter((path) => plan.pathsToScan.has(path)),
+					const updatedPathHits = pending.get(plan.cacheKey) ?? new Map<string, BodyHit[]>();
+					const hits = capHitsByNoteCount(
+						mergeUpdatedPathHits(plan.existingHits, updatedPathHits, scopePaths),
+						scanOptions.maxCandidateNotes,
 					);
+					const planFailedPaths =
+						failedPathsByCacheKey.get(plan.cacheKey) ?? new Set<string>();
 					const scannedGeneration = generationBeforeFailures(
 						this.cache.manifest,
 						currentGeneration,

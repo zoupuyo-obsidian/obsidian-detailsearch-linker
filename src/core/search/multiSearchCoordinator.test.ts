@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { QueryCache } from '../cache/queryCache.ts';
-import { MultiSearchCoordinator } from './multiSearchCoordinator.ts';
+import {
+	mergeUpdatedPathHits,
+	MultiSearchCoordinator,
+} from './multiSearchCoordinator.ts';
+import { capHitsByNoteCount } from './hitLimits.ts';
 import { scopeFingerprint, type ScopedFile } from './scopeFilter.ts';
+import type { BodyHit } from './types.ts';
 
 const SCOPE = {
 	includeFolders: [] as string[],
@@ -80,6 +85,94 @@ function manyTerms(prefix: string, count: number) {
 		caseSensitive: false,
 	}));
 }
+
+function hit(path: string, offset: number, excerpt = `${path}:${offset}`): BodyHit {
+	return { path, heading: '', offset, excerpt, mtime: 1 };
+}
+
+test('batch merge replaces updated paths, retains absent paths, and sorts once deterministically', () => {
+	const existing = [
+		hit('c.md', 8, 'pending path retained'),
+		hit('a.md', 1, 'stale'),
+		hit('b.md', 3, 'failed path retained'),
+		hit('outside.md', 0, 'out of scope'),
+	];
+	const updated = new Map<string, BodyHit[]>([
+		['a.md', [hit('a.md', 9, 'new later'), hit('a.md', 2, 'new earlier')]],
+		['d.md', [hit('d.md', 4, 'new path')]],
+	]);
+
+	const merged = mergeUpdatedPathHits(
+		existing,
+		updated,
+		new Set(['a.md', 'b.md', 'c.md', 'd.md']),
+	);
+
+	assert.deepEqual(
+		merged.map(({ path, offset, excerpt }) => ({ path, offset, excerpt })),
+		[
+			{ path: 'a.md', offset: 2, excerpt: 'new earlier' },
+			{ path: 'a.md', offset: 9, excerpt: 'new later' },
+			{ path: 'b.md', offset: 3, excerpt: 'failed path retained' },
+			{ path: 'c.md', offset: 8, excerpt: 'pending path retained' },
+			{ path: 'd.md', offset: 4, excerpt: 'new path' },
+		],
+	);
+});
+
+test('batch merge traverses updates once instead of once per updated path', () => {
+	class CountingMap extends Map<string, BodyHit[]> {
+		hasCalls = 0;
+		valuesCalls = 0;
+
+		override has(key: string): boolean {
+			this.hasCalls++;
+			return super.has(key);
+		}
+
+		override values(): MapIterator<BodyHit[]> {
+			this.valuesCalls++;
+			return super.values();
+		}
+	}
+
+	const existing = Array.from({ length: 1_000 }, (_, i) =>
+		hit(`note-${String(i).padStart(4, '0')}.md`, i),
+	);
+	const updated = new CountingMap(
+		Array.from({ length: 500 }, (_, i) => [
+			`note-${String(i).padStart(4, '0')}.md`,
+			[hit(`note-${String(i).padStart(4, '0')}.md`, i + 1_000)],
+		]),
+	);
+	const scopePaths = new Set(existing.map((item) => item.path));
+
+	const merged = mergeUpdatedPathHits(existing, updated, scopePaths);
+
+	assert.equal(merged.length, existing.length);
+	assert.equal(updated.hasCalls, existing.length);
+	assert.equal(updated.valuesCalls, 1);
+});
+
+test('batch merge keeps all hits for each note selected by the note cap', () => {
+	const merged = mergeUpdatedPathHits(
+		[hit('b.md', 4), hit('b.md', 1), hit('c.md', 2)],
+		new Map([['a.md', [hit('a.md', 3), hit('a.md', 0)]]]),
+		new Set(['a.md', 'b.md', 'c.md']),
+	);
+
+	const capped = capHitsByNoteCount(merged, 2);
+
+	assert.deepEqual(
+		capped.map(({ path, offset }) => ({ path, offset })),
+		[
+			{ path: 'a.md', offset: 0 },
+			{ path: 'a.md', offset: 3 },
+			{ path: 'b.md', offset: 1 },
+			{ path: 'b.md', offset: 4 },
+		],
+	);
+});
 
 test('50 terms read each target file at most once', async () => {
 	const h = makeHarness({

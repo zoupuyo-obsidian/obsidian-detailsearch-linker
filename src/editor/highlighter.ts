@@ -86,6 +86,13 @@ function buildDecorations(state: DetailSessionState): DecorationSet {
 		return Decoration.none;
 	}
 	const planned = collectPlannedRanges(state);
+	const plannedByRange = new Map<string, PlannedRange>();
+	for (const range of planned) {
+		const key = `${range.from}\0${range.to}\0${range.kind}`;
+		if (!plannedByRange.has(key)) {
+			plannedByRange.set(key, range);
+		}
+	}
 	const safe = prepareHighlightRanges(
 		planned.map((p) => ({
 			from: p.from,
@@ -96,9 +103,7 @@ function buildDecorations(state: DetailSessionState): DecorationSet {
 	);
 	const builder = new RangeSetBuilder<Decoration>();
 	for (const item of safe) {
-		const match = planned.find(
-			(p) => p.from === item.from && p.to === item.to && p.kind === item.kind,
-		);
+		const match = plannedByRange.get(`${item.from}\0${item.to}\0${item.kind}`);
 		if (!match) {
 			continue;
 		}

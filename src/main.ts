@@ -931,13 +931,19 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			}
 
 			const kept = dedupeOverlappingAnchors(scoredInputs);
+			const keptByGroupKey = new Map<string, typeof kept>();
+			for (const anchor of kept) {
+				const groupAnchors = keptByGroupKey.get(anchor.groupKey) ?? [];
+				groupAnchors.push(anchor);
+				keptByGroupKey.set(anchor.groupKey, groupAnchors);
+			}
 
 			const groups: ResultGroup[] = [];
 			const anchors: SessionAnchor[] = [];
 			let anchorIdx = 0;
 
 			for (const [key, meta] of groupMeta) {
-				const groupAnchors = kept.filter((a) => a.groupKey === key);
+				const groupAnchors = keptByGroupKey.get(key) ?? [];
 				if (groupAnchors.length === 0) {
 					continue;
 				}

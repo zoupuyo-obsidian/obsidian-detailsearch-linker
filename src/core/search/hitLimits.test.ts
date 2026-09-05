@@ -24,3 +24,19 @@ test('maxCandidateNotes limits unique note paths not hit count', () => {
 test('maxCandidateNotes zero returns empty', () => {
 	assert.deepEqual(capHitsByNoteCount([hit('a.md', 0)], 0), []);
 });
+
+test('cap preserves path order and every hit for each kept note', () => {
+	const capped = capHitsByNoteCount(
+		[hit('c.md', 1), hit('a.md', 2), hit('b.md', 4), hit('a.md', 1), hit('b.md', 3)],
+		2,
+	);
+	assert.deepEqual(
+		capped.map(({ path, offset }) => ({ path, offset })),
+		[
+			{ path: 'a.md', offset: 2 },
+			{ path: 'a.md', offset: 1 },
+			{ path: 'b.md', offset: 4 },
+			{ path: 'b.md', offset: 3 },
+		],
+	);
+});
