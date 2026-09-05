@@ -20,6 +20,22 @@ export function beginPreviewNavigation(
 	return { sourcePath, targetPath };
 }
 
+export type PreviewOpenStrategy =
+	| { kind: 'existing'; leafIndex: number }
+	| { kind: 'new-tab' };
+
+/**
+ * Open the target in its existing leaf or a new tab. Never reuse the source
+ * editor — replacing that document remaps source anchors onto the target.
+ */
+export function resolvePreviewOpenStrategy(
+	leaves: readonly { path: string }[],
+	targetPath: string,
+): PreviewOpenStrategy {
+	const leafIndex = leaves.findIndex((leaf) => leaf.path === targetPath);
+	return leafIndex >= 0 ? { kind: 'existing', leafIndex } : { kind: 'new-tab' };
+}
+
 export function transitionPreviewNavigation(
 	state: PreviewNavigationState,
 	openedPath: string | null,

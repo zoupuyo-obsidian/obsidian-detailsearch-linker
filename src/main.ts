@@ -54,13 +54,15 @@ import { anchorStillValid } from './core/search/termMatch';
 import type { CancelToken } from './core/search/types';
 import {
 	detailsearchLinkerEditorExtension,
-	detailSessionField,
+	readDetailSession,
+	sessionMatchesDocument,
 	setDetailSessionEffect,
 } from './editor/highlighter';
 import { t, tf } from './i18n';
 import { DetailHoverController, type PreviewHost } from './preview/hoverPreview';
 import {
 	beginPreviewNavigation,
+	resolvePreviewOpenStrategy,
 	transitionPreviewNavigation,
 	type PreviewNavigationState,
 } from './preview/previewNavigation';
@@ -161,8 +163,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				if (this.activeSearchEditor === update.view) {
 					this.invalidateActiveSearch();
 				}
-				const live = update.state.field(detailSessionField);
-				if (live.filePath && live.filePath === this.session.filePath) {
+				const live = readDetailSession(update.state);
+				if (live?.filePath && live.filePath === this.session.filePath) {
 					this.session = live;
 				}
 			}),
@@ -1074,11 +1076,18 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			if (!cm) {
 				return;
 			}
+			const sameFile =
+				!!this.session.filePath &&
+				leaf.view.file?.path === this.session.filePath;
 			const state =
-				leaf.view.file?.path === this.session.filePath && this.session.filePath
+				sameFile && sessionMatchesDocument(this.session, cm.state.doc.toString())
 					? this.session
 					: emptySession();
-			const current = cm.state.field(detailSessionField);
+			// Obsidian can expose a leaf before its editor extensions are installed.
+			const current = readDetailSession(cm.state);
+			if (!current) {
+				return;
+			}
 			if (
 				current === state ||
 				(!current.filePath &&
@@ -1128,12 +1137,27 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 					this.liveSession().filePath,
 					targetFile.path,
 				);
-				void this.app.workspace
-					.getLeaf(false)
-					.openFile(targetFile, openState)
-					.catch(() => {
-						this.previewNavigation = null;
-					});
+				const markdownLeaves = this.app.workspace.getLeavesOfType('markdown');
+				const openStrategy = resolvePreviewOpenStrategy(
+					markdownLeaves.map((leaf) => ({
+						path:
+							leaf.view instanceof MarkdownView
+								? (leaf.view.file?.path ?? '')
+								: '',
+					})),
+					targetFile.path,
+				);
+				const targetLeaf =
+					openStrategy.kind === 'existing'
+						? markdownLeaves[openStrategy.leafIndex]
+						: this.app.workspace.getLeaf('tab');
+				if (!targetLeaf) {
+					this.previewNavigation = null;
+					return;
+				}
+				void targetLeaf.openFile(targetFile, openState).catch(() => {
+					this.previewNavigation = null;
+				});
 			},
 			clearSession: () => {
 				this.clearSession(true);
@@ -1153,8 +1177,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			new Notice(t(lang, 'noticeNoEditor'));
 			return;
 		}
-		const liveSession = cm.state.field(detailSessionField);
-		if (liveSession.filePath !== view.file.path) {
+		const liveSession = readDetailSession(cm.state);
+		if (!liveSession || liveSession.filePath !== view.file.path) {
 			new Notice(t(lang, 'noticeNoCandidatesAtCursor'));
 			return;
 		}
@@ -1207,9 +1231,14 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = editorView(view?.editor);
 		if (cm) {
-			return cm.state.field(detailSessionField);
+			const live = readDetailSession(cm.state);
+			if (live) {
+				return live;
+			}
 		}
-		return this.session;
+		return view?.file?.path === this.session.filePath
+			? this.session
+			: emptySession();
 	}
 
 	private createLink(anchor: SessionAnchor, candidatePath: string, hitIndex: number): void {
@@ -1221,8 +1250,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			return;
 		}
 
-		const liveSession = cm.state.field(detailSessionField);
-		if (!sourceMatchesLiveSession(sourcePath, liveSession.filePath)) {
+		const liveSession = readDetailSession(cm.state);
+		if (!liveSession || !sourceMatchesLiveSession(sourcePath, liveSession.filePath)) {
 			return;
 		}
 		const live = liveSession.anchors.find((item) => item.id === anchor.id);
@@ -1289,7 +1318,10 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			changes: { from: live.from, to: live.to, insert },
 		});
 
-		const mappedSession = cm.state.field(detailSessionField);
+		const mappedSession = readDetailSession(cm.state);
+		if (!mappedSession) {
+			return;
+		}
 		this.session = {
 			...mappedSession,
 			anchors: mappedSession.anchors.filter((item) => item.id !== live.id),

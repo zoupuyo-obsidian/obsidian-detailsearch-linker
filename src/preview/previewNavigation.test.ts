@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
 	beginPreviewNavigation,
+	resolvePreviewOpenStrategy,
 	transitionPreviewNavigation,
 } from './previewNavigation.ts';
 
@@ -38,4 +39,21 @@ test('preview navigation is not started for invalid or identical paths', () => {
 	assert.equal(beginPreviewNavigation('source.md', ''), null);
 	assert.equal(beginPreviewNavigation('source.md', 'source.md'), null);
 	assert.deepEqual(beginPreviewNavigation('source.md', 'target.md'), navigation);
+});
+
+test('preview open prefers an existing target leaf over the source editor', () => {
+	assert.deepEqual(
+		resolvePreviewOpenStrategy(
+			[{ path: 'source.md' }, { path: 'target.md' }, { path: 'other.md' }],
+			'target.md',
+		),
+		{ kind: 'existing', leafIndex: 1 },
+	);
+});
+
+test('preview open uses a new tab when the target is not already visible', () => {
+	assert.deepEqual(
+		resolvePreviewOpenStrategy([{ path: 'source.md' }], 'target.md'),
+		{ kind: 'new-tab' },
+	);
 });

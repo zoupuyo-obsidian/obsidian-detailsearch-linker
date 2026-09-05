@@ -1,4 +1,6 @@
 import {
+	type ChangeDesc,
+	type EditorState,
 	Facet,
 	RangeSetBuilder,
 	StateEffect,
@@ -18,6 +20,7 @@ import {
 	type DetailSessionState,
 	type SessionAnchor,
 } from '../session';
+import { foldCase } from '../core/search/caseFold';
 import { prepareHighlightRanges, type HighlightRangeItem } from './highlightRanges';
 
 export const setDetailSessionEffect = StateEffect.define<DetailSessionState>();
@@ -62,8 +65,11 @@ interface PlannedRange {
 	anchor: SessionAnchor;
 }
 
-export function planHighlightRanges(state: DetailSessionState): HighlightRangeItem[] {
-	const planned = collectPlannedRanges(state);
+export function planHighlightRanges(
+	state: DetailSessionState,
+	doc: string,
+): HighlightRangeItem[] {
+	const planned = collectPlannedRanges(state, doc);
 	return prepareHighlightRanges(
 		planned.map((p) => ({
 			from: p.from,
@@ -74,10 +80,13 @@ export function planHighlightRanges(state: DetailSessionState): HighlightRangeIt
 	);
 }
 
-function collectPlannedRanges(state: DetailSessionState): PlannedRange[] {
+function collectPlannedRanges(
+	state: DetailSessionState,
+	doc: string,
+): PlannedRange[] {
 	const planned: PlannedRange[] = [];
 	for (const anchor of state.anchors) {
-		if (anchor.to <= anchor.from) {
+		if (!anchorTextMatches(doc, anchor, state.caseSensitive)) {
 			continue;
 		}
 		planned.push({ from: anchor.from, to: anchor.to, kind: 'mark', anchor });
@@ -91,12 +100,13 @@ function collectPlannedRanges(state: DetailSessionState): PlannedRange[] {
 
 function buildDecorations(
 	state: DetailSessionState,
+	doc: string,
 	badgeAriaLabel: (count: number) => string,
 ): DecorationSet {
 	if (state.anchors.length === 0) {
 		return Decoration.none;
 	}
-	const planned = collectPlannedRanges(state);
+	const planned = collectPlannedRanges(state, doc);
 	const plannedByRange = new Map<string, PlannedRange>();
 	for (const range of planned) {
 		const key = `${range.from}\0${range.to}\0${range.kind}`;
@@ -146,9 +156,64 @@ function buildDecorations(
 	return builder.finish();
 }
 
+export function readDetailSession(state: EditorState): DetailSessionState | null {
+	return state.field(detailSessionField, false) ?? null;
+}
+
+export function isFullDocumentReplacement(
+	changes: ChangeDesc,
+	oldDocLength: number,
+): boolean {
+	if (oldDocLength <= 0) {
+		return false;
+	}
+	let coveredUntil = 0;
+	let hasChangedContent = false;
+	changes.iterChangedRanges((fromA, toA) => {
+		if (fromA > coveredUntil || toA <= fromA) {
+			return;
+		}
+		hasChangedContent = true;
+		coveredUntil = Math.max(coveredUntil, toA);
+	});
+	return hasChangedContent && coveredUntil >= oldDocLength;
+}
+
+function anchorTextMatches(
+	doc: string,
+	anchor: SessionAnchor,
+	caseSensitive: boolean,
+): boolean {
+	if (anchor.from < 0 || anchor.to <= anchor.from || anchor.to > doc.length) {
+		return false;
+	}
+	const current = doc.slice(anchor.from, anchor.to);
+	return caseSensitive
+		? current === anchor.text
+		: foldCase(current) === foldCase(anchor.text);
+}
+
+/** True when at least one session anchor still sits on the same text in `doc`. */
+export function sessionMatchesDocument(
+	state: DetailSessionState,
+	doc: string,
+): boolean {
+	return state.anchors.some((anchor) =>
+		anchorTextMatches(doc, anchor, state.caseSensitive),
+	);
+}
+
 export const detailSessionField = StateField.define<DetailSessionState>({
 	create: () => emptySession(),
 	update(value, tr) {
+		// A reused EditorView can replace its whole document before file-open clears
+		// the old file's session. Never map those anchors into the new note.
+		if (
+			tr.docChanged &&
+			isFullDocumentReplacement(tr.changes, tr.startState.doc.length)
+		) {
+			return emptySession();
+		}
 		for (const effect of tr.effects) {
 			if (effect.is(setDetailSessionEffect)) {
 				return effect.value;
@@ -158,11 +223,19 @@ export const detailSessionField = StateField.define<DetailSessionState>({
 			return value;
 		}
 		const mapped: SessionAnchor[] = [];
+		const nextDoc = tr.newDoc.toString();
 		for (const anchor of value.anchors) {
-			const from = tr.changes.mapPos(anchor.from, 1);
-			const to = tr.changes.mapPos(anchor.to, -1);
-			if (to > from) {
-				mapped.push({ ...anchor, from, to });
+			let contentWasChanged = false;
+			tr.changes.iterChangedRanges((fromA, toA) => {
+				if (fromA < anchor.to && toA > anchor.from) {
+					contentWasChanged = true;
+				}
+			});
+			const from = tr.changes.mapPos(anchor.from, contentWasChanged ? -1 : 1);
+			const to = tr.changes.mapPos(anchor.to, contentWasChanged ? 1 : -1);
+			const next = { ...anchor, from, to };
+			if (anchorTextMatches(nextDoc, next, value.caseSensitive)) {
+				mapped.push(next);
 			}
 		}
 		return { ...value, anchors: mapped };
@@ -181,10 +254,20 @@ export function detailsearchLinkerEditorExtension(
 		EditorView.decorations.compute(
 			[detailSessionField, badgeAriaLabelFacet],
 			(state) => {
+				// Dynamic editor-extension reconfiguration can briefly invoke this
+				// callback for a state where the session field is not installed.
+				const session = readDetailSession(state);
+				if (!session) {
+					return Decoration.none;
+				}
 				const label =
 					state.facet(badgeAriaLabelFacet)[0] ??
 					((count: number) => `${count} link candidates`);
-				return buildDecorations(state.field(detailSessionField), label);
+				return buildDecorations(
+					session,
+					state.doc.toString(),
+					label,
+				);
 			},
 		),
 	];
