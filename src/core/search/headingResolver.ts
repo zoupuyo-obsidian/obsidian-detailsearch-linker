@@ -7,13 +7,16 @@ export interface Heading {
 }
 
 const ATX_HEADING = /^( {0,3})(#{1,6})\s+(.+?)\s*#*\s*$/;
+const SETEXT_UNDERLINE = /^ {0,3}(=+|-+)[ \t]*$/;
+const SETEXT_TEXT = /^ {0,3}\S/;
 
 export function findHeadings(text: string): Heading[] {
 	const protectedSpans = findProtectedSpans(text);
 	const headings: Heading[] = [];
-	const lines = text.split('\n');
+	const lines = text.split('\n').map((raw) => (raw.endsWith('\r') ? raw.slice(0, -1) : raw));
 	let offset = 0;
-	for (const line of lines) {
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i]!;
 		const m = ATX_HEADING.exec(line);
 		if (m) {
 			const lineEnd = offset + line.length;
@@ -24,8 +27,26 @@ export function findHeadings(text: string): Heading[] {
 					offset,
 				});
 			}
+		} else if (SETEXT_TEXT.test(line)) {
+			const next = lines[i + 1];
+			const underline = next === undefined ? null : SETEXT_UNDERLINE.exec(next);
+			if (underline) {
+				const lineEnd = offset + line.length;
+				const underlineStart = lineEnd + (text[lineEnd] === '\r' ? 2 : 1);
+				const underlineEnd = underlineStart + next!.length;
+				if (
+					!covers(protectedSpans, offset, lineEnd) &&
+					!covers(protectedSpans, underlineStart, underlineEnd)
+				) {
+					headings.push({
+						level: underline[1]![0] === '=' ? 1 : 2,
+						text: line.trim(),
+						offset,
+					});
+				}
+			}
 		}
-		offset += line.length + 1;
+		offset += line.length + (text[offset + line.length] === '\r' ? 2 : 1);
 	}
 	return headings;
 }

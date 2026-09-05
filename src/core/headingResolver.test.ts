@@ -24,3 +24,42 @@ test('no heading returns empty nearest', () => {
 	const headings = findHeadings(text);
 	assert.equal(nearestHeading(headings, 5), null);
 });
+
+test('finds Setext h1 and h2 headings', () => {
+	const text = 'First heading\n===\n\n  Second heading  \n  ---\nbody';
+	const headings = findHeadings(text);
+	assert.deepEqual(
+		headings.map(({ level, text: headingText, offset }) => ({ level, text: headingText, offset })),
+		[
+			{ level: 1, text: 'First heading', offset: 0 },
+			{ level: 2, text: 'Second heading', offset: text.indexOf('  Second') },
+		],
+	);
+});
+
+test('ignores Setext-like headings inside fences', () => {
+	const text = '~~~\nFake\n===\n~~~\n\nReal\n---\nbody';
+	const headings = findHeadings(text);
+	assert.deepEqual(
+		headings.map(({ level, text: headingText }) => ({ level, text: headingText })),
+		[{ level: 2, text: 'Real' }],
+	);
+});
+
+test('nearestHeading includes preceding Setext headings', () => {
+	const text = 'Top\n===\nintro\n\nSection\n---\nmatch here';
+	const headings = findHeadings(text);
+	const heading = nearestHeading(headings, text.indexOf('match'));
+	assert.equal(heading?.text, 'Section');
+	assert.equal(heading?.level, 2);
+});
+
+test('does not treat protected markdown link text as Setext heading', () => {
+	const text = '[linked title](note.md)\n---\nbody';
+	assert.deepEqual(findHeadings(text), []);
+});
+
+test('does not treat four-space indented text as a Setext heading', () => {
+	const text = '    indented code\n---\nbody';
+	assert.deepEqual(findHeadings(text), []);
+});
