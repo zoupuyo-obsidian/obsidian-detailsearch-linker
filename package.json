@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-detailsearch-linker",
-	"version": "1.0.4",
+	"version": "1.0.5",
 	"description": "Search vault note bodies on demand for a selected term and insert heading links in the configured internal-link format.",
 	"main": "main.js",
 	"type": "module",

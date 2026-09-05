@@ -25,8 +25,6 @@ export function yieldToUi(): Promise<void> {
 			window.setTimeout(resolve, 0);
 			return;
 		}
-		// Node test runtime has no Obsidian window.
-		// eslint-disable-next-line obsidianmd/prefer-window-timers -- node test fallback
-		setTimeout(resolve, 0);
+		queueMicrotask(resolve);
 	});
 }

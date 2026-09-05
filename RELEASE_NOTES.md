@@ -1,4 +1,4 @@
-# DetailSearch Linker 1.0.4
+# DetailSearch Linker 1.0.5
 
 Search other note bodies on demand from a selection or from terms extracted in the current note. Preview the destination excerpt and nearest heading, then insert a heading link in the configured internal-link format.
 
