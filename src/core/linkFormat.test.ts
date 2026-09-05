@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatHeadingWikilink } from './link/formatLink.ts';
 import {
 	buildAnchorSpots,
 	ModalQuerySource,
@@ -11,17 +10,6 @@ import { SearchCoordinator } from './search/searchCoordinator.ts';
 import { anchorStillValid } from './search/termMatch.ts';
 import { trimSelectionRange, validateQuery } from './query/queryValidation.ts';
 import { QueryCache } from './cache/queryCache.ts';
-
-test('formatHeadingWikilink with heading and alias', () => {
-	assert.equal(
-		formatHeadingWikilink('Note', '救急', 'Section'),
-		'[[Note#Section|救急]]',
-	);
-});
-
-test('formatHeadingWikilink without heading', () => {
-	assert.equal(formatHeadingWikilink('Note', 'Note', ''), '[[Note]]');
-});
 
 test('selection trims anchor range', () => {
 	const text = 'xx  term  yy';

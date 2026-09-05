@@ -46,6 +46,8 @@ const messages = {
 		noticeCacheCleared: '検索キャッシュを消去しました',
 		noticeSaveFailed: '設定と検索キャッシュを保存できませんでした。変更はまだ保存されていません',
 		noticeAnchorChanged: '強調位置が変わったため、リンク挿入を中止しました',
+		noticeTargetChanged: '検索後にリンク先ノートが変更されたため、リンク挿入を中止しました',
+		noticeTargetMissing: 'リンク先ノートが見つかりません',
 		noticeCacheSize: (entries: number, kb: number) =>
 			`キャッシュ: ${entries} クエリ / 約 ${kb} KB`,
 		queryModalTitle: '検索語を入力',
@@ -179,6 +181,8 @@ const messages = {
 		noticeCacheCleared: 'Search cache cleared',
 		noticeSaveFailed: 'Could not save settings and search cache; changes remain unsaved',
 		noticeAnchorChanged: 'Anchor changed; link insertion aborted',
+		noticeTargetChanged: 'Target note changed after search; link insertion aborted',
+		noticeTargetMissing: 'Target note no longer exists',
 		noticeCacheSize: (entries: number, kb: number) =>
 			`Cache: ${entries} queries / ~${kb} KB`,
 		queryModalTitle: 'Enter search term',

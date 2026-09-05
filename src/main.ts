@@ -28,7 +28,11 @@ import {
 	groupKeyForQuery,
 	type ExtractSettings,
 } from './core/extract/queryExtractor';
-import { formatHeadingWikilink } from './core/link/formatLink';
+import {
+	generateHeadingLink,
+	resolveHeadingAtOffset,
+	targetMtimeMatches,
+} from './core/link/linkCreation';
 import { buildAnchorSpots, ModalQuerySource, SelectionQuerySource } from './core/query/selectionSource';
 import type { SearchRequest } from './core/query/querySource';
 import { validateQuery, MAX_QUERY_LENGTH, trimSelectionRange, type QueryValidationError } from './core/query/queryValidation';
@@ -1066,8 +1070,15 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				this.createLink(anchor, candidatePath, hitIndex);
 			},
 			openNote: (path, heading) => {
-				const link = heading ? `${path}#${heading}` : path;
-				void this.app.workspace.openLinkText(link, '', false);
+				const targetFile = this.app.vault.getAbstractFileByPath(path);
+				if (!(targetFile instanceof TFile)) {
+					new Notice(t(this.settings.uiLanguage, 'noticeTargetMissing'));
+					return;
+				}
+				const openState = heading
+					? { eState: { subpath: `#${heading}` } }
+					: undefined;
+				void this.app.workspace.getLeaf(false).openFile(targetFile, openState);
 			},
 			clearSession: () => {
 				this.clearSession(true);
@@ -1162,15 +1173,33 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 
 		const targetFile = this.app.vault.getAbstractFileByPath(candidatePath);
 		if (!(targetFile instanceof TFile)) {
+			new Notice(t(lang, 'noticeTargetMissing'));
+			return;
+		}
+		if (!targetMtimeMatches(hit.mtime, targetFile.stat.mtime)) {
+			new Notice(t(lang, 'noticeTargetChanged'));
 			return;
 		}
 
-		const linktext = this.app.metadataCache.fileToLinktext(
+		const cachedMetadata = this.app.metadataCache.getFileCache(targetFile);
+		const heading = resolveHeadingAtOffset(
+			cachedMetadata ? (cachedMetadata.headings ?? []) : null,
+			hit.offset,
+			hit.heading,
+		);
+		const insert = generateHeadingLink(
+			(file, linkSourcePath, subpath, alias) =>
+				this.app.fileManager.generateMarkdownLink(
+					file,
+					linkSourcePath,
+					subpath,
+					alias,
+				),
 			targetFile,
 			sourcePath,
-			true,
+			heading,
+			live.text,
 		);
-		const insert = formatHeadingWikilink(linktext, live.text, hit.heading);
 
 		cm.dispatch({
 			changes: { from: live.from, to: live.to, insert },
