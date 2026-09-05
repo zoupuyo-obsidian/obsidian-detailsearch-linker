@@ -72,6 +72,13 @@ When nothing is selected, this legacy command opens an input modal. The unified 
 
 Clear highlights via the ribbon (when nothing is selected), status bar, or **Clear highlights**. Use **Cancel search** during long scans.
 
+### Keyboard
+
+`Tab` and `Enter` keep their normal editing behavior in the editor. To open the
+popover without a mouse, place the cursor within (or at the edge of) a highlighted
+anchor and run **Open link candidates at cursor** from the command palette. The
+command has no default hotkey; you can assign one in Obsidian's **Hotkeys** settings.
+
 ### Ignore list (Spot Linker–style)
 
 - **Ignored terms** apply to **auto-extract only**. Explicit selection search (including re-selecting an ignored term) always runs.

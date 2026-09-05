@@ -3,6 +3,8 @@ export const SEARCH_CURRENT_NOTE_COMMAND_ID = 'search-current-note';
 
 export const LEGACY_COMMAND_IDS = ['search-selection', 'search-auto'] as const;
 
+export const ACCESSIBILITY_COMMAND_IDS = ['open-candidates-at-cursor'] as const;
+
 export const DIAGNOSTIC_COMMAND_IDS = [
 	'cancel-search',
 	'clear-highlights',
@@ -12,6 +14,7 @@ export const DIAGNOSTIC_COMMAND_IDS = [
 export const REGISTERED_COMMAND_IDS = [
 	SEARCH_CURRENT_NOTE_COMMAND_ID,
 	...LEGACY_COMMAND_IDS,
+	...ACCESSIBILITY_COMMAND_IDS,
 	...DIAGNOSTIC_COMMAND_IDS,
 ] as const;
 
@@ -26,6 +29,7 @@ export type CommandI18nKey =
 	| 'cmdSearchCurrentNote'
 	| 'cmdSearchSelection'
 	| 'cmdSearchAuto'
+	| 'cmdOpenCandidatesAtCursor'
 	| 'cmdCancelSearch'
 	| 'cmdClear'
 	| 'cmdClearCache';
@@ -46,6 +50,11 @@ export const COMMAND_DEFINITIONS: readonly CommandDefinition[] = [
 	},
 	{ id: 'search-selection', i18nKey: 'cmdSearchSelection', primary: false },
 	{ id: 'search-auto', i18nKey: 'cmdSearchAuto', primary: false },
+	{
+		id: 'open-candidates-at-cursor',
+		i18nKey: 'cmdOpenCandidatesAtCursor',
+		primary: false,
+	},
 	{ id: 'cancel-search', i18nKey: 'cmdCancelSearch', primary: false },
 	{ id: 'clear-highlights', i18nKey: 'cmdClear', primary: false },
 	{ id: 'clear-cache', i18nKey: 'cmdClearCache', primary: false },

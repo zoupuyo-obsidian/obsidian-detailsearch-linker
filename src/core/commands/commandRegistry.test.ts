@@ -24,6 +24,13 @@ test('legacy diagnostic commands remain registered', () => {
 	);
 	assert.ok(COMMAND_DEFINITIONS.some((c) => c.id === 'search-selection'));
 	assert.ok(COMMAND_DEFINITIONS.some((c) => c.id === 'search-auto'));
+	assert.ok(
+		COMMAND_DEFINITIONS.some((c) => c.id === 'open-candidates-at-cursor'),
+	);
+	assert.equal(
+		COMMAND_DEFINITIONS.find((c) => c.id === 'open-candidates-at-cursor')?.icon,
+		undefined,
+	);
 	assert.equal(COMMAND_DEFINITIONS.filter((c) => c.primary).length, 1);
 	assert.equal(COMMAND_DEFINITIONS[0]!.id, SEARCH_CURRENT_NOTE_COMMAND_ID);
 });

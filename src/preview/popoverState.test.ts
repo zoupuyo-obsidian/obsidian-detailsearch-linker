@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
 	normalizePopoverFocus,
+	resolveAnchorAtPosition,
+	resolveHoverSchedule,
 	resolvePopoverActionTarget,
 } from './popoverState.ts';
 import {
@@ -88,4 +90,23 @@ test('resolves action target and hit from fresh anchor group', () => {
 		resolvePopoverActionTarget(session, 'same-anchor-id', 'stale.md', 0),
 		null,
 	);
+});
+
+test('keeps a pending hover timer for repeated movement on the same anchor', () => {
+	assert.equal(resolveHoverSchedule('anchor-a', null, false, 'anchor-a'), 'keep');
+	assert.equal(resolveHoverSchedule('anchor-a', null, false, 'anchor-b'), 'schedule');
+	assert.equal(resolveHoverSchedule('anchor-a', null, false, null), 'cancel');
+	assert.equal(resolveHoverSchedule(null, 'anchor-a', true, 'anchor-a'), 'cancel');
+});
+
+test('resolves cursor boundaries and chooses the smallest containing anchor', () => {
+	const anchors = [
+		{ id: 'wide', from: 2, to: 12, text: 'wide', groupKey: 'wide' },
+		{ id: 'small-b', from: 5, to: 8, text: 'small', groupKey: 'small' },
+		{ id: 'small-a', from: 5, to: 8, text: 'small', groupKey: 'small' },
+	];
+	assert.equal(resolveAnchorAtPosition(anchors, 2)?.id, 'wide');
+	assert.equal(resolveAnchorAtPosition(anchors, 8)?.id, 'small-a');
+	assert.equal(resolveAnchorAtPosition(anchors, 12)?.id, 'wide');
+	assert.equal(resolveAnchorAtPosition(anchors, 13), null);
 });

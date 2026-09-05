@@ -8,6 +8,7 @@ const messages = {
 		cmdSearchCurrentNote: '現在ノートの本文リンク候補を探す',
 		cmdSearchSelection: '選択語を他ノート本文から探す',
 		cmdSearchAuto: '現在ノートから本文リンク候補を探す',
+		cmdOpenCandidatesAtCursor: 'カーソル位置のリンク候補を開く',
 		cmdCancelSearch: '検索を中止',
 		cmdClear: '強調を消す',
 		cmdClearCache: '検索キャッシュを消去',
@@ -48,6 +49,7 @@ const messages = {
 		noticeAnchorChanged: '強調位置が変わったため、リンク挿入を中止しました',
 		noticeTargetChanged: '検索後にリンク先ノートが変更されたため、リンク挿入を中止しました',
 		noticeTargetMissing: 'リンク先ノートが見つかりません',
+		noticeNoCandidatesAtCursor: 'カーソル位置にリンク候補はありません',
 		noticeCacheSize: (entries: number, kb: number) =>
 			`キャッシュ: ${entries} クエリ / 約 ${kb} KB`,
 		queryModalTitle: '検索語を入力',
@@ -144,6 +146,7 @@ const messages = {
 		cmdSearchCurrentNote: 'Find body link candidates in current note',
 		cmdSearchSelection: 'Search selection in other note bodies',
 		cmdSearchAuto: 'Find body link candidates from current note',
+		cmdOpenCandidatesAtCursor: 'Open link candidates at cursor',
 		cmdCancelSearch: 'Cancel search',
 		cmdClear: 'Clear highlights',
 		cmdClearCache: 'Clear search cache',
@@ -184,6 +187,7 @@ const messages = {
 		noticeAnchorChanged: 'Anchor changed; link insertion aborted',
 		noticeTargetChanged: 'Target note changed after search; link insertion aborted',
 		noticeTargetMissing: 'Target note no longer exists',
+		noticeNoCandidatesAtCursor: 'No link candidates at the cursor',
 		noticeCacheSize: (entries: number, kb: number) =>
 			`Cache: ${entries} queries / ~${kb} KB`,
 		queryModalTitle: 'Enter search term',

@@ -20,6 +20,43 @@ export interface PopoverActionTarget {
 	hitIndex: number;
 }
 
+export type HoverScheduleAction = 'keep' | 'schedule' | 'cancel';
+
+export function resolveHoverSchedule(
+	scheduledAnchorId: string | null,
+	activeAnchorId: string | null,
+	hasPopover: boolean,
+	targetAnchorId: string | null,
+): HoverScheduleAction {
+	if (!targetAnchorId) {
+		return 'cancel';
+	}
+	if (targetAnchorId === scheduledAnchorId) {
+		return 'keep';
+	}
+	if (hasPopover && targetAnchorId === activeAnchorId) {
+		return 'cancel';
+	}
+	return 'schedule';
+}
+
+export function resolveAnchorAtPosition(
+	anchors: readonly SessionAnchor[],
+	position: number,
+): SessionAnchor | null {
+	const matches = anchors.filter(
+		(anchor) => anchor.from <= position && position <= anchor.to,
+	);
+	matches.sort(
+		(a, b) =>
+			a.to - a.from - (b.to - b.from) ||
+			a.from - b.from ||
+			a.to - b.to ||
+			a.id.localeCompare(b.id),
+	);
+	return matches[0] ?? null;
+}
+
 export function normalizePopoverFocus(
 	group: ResultGroup,
 	focus: PopoverFocus,

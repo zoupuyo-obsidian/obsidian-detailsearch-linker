@@ -60,6 +60,12 @@ import {
 import { t, tf } from './i18n';
 import { DetailHoverController, type PreviewHost } from './preview/hoverPreview';
 import {
+	beginPreviewNavigation,
+	transitionPreviewNavigation,
+	type PreviewNavigationState,
+} from './preview/previewNavigation';
+import { resolveAnchorAtPosition } from './preview/popoverState';
+import {
 	buildAutoSession,
 	buildSelectionSession,
 	emptySession,
@@ -108,6 +114,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private ribbonEl: HTMLElement | null = null;
 	private readonly hover = new DetailHoverController();
 	private hoverAttachedTo: HTMLElement | null = null;
+	private previewNavigation: PreviewNavigationState | null = null;
 	private searchBusy = false;
 	private activeSearchToken: SearchCancelToken | null = null;
 	private activeSearchEditor: EditorView | null = null;
@@ -202,6 +209,21 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				}
 				if (file instanceof TFile && file.extension === 'md') {
 					this.workset.touch(file.path);
+				}
+				if (this.previewNavigation) {
+					const transition = transitionPreviewNavigation(
+						this.previewNavigation,
+						file?.path ?? null,
+					);
+					this.previewNavigation = transition.state;
+					if (
+						transition.action === 'preserve' ||
+						transition.action === 'restore-source'
+					) {
+						this.applySessionToEditors();
+						this.attachHoverToActive();
+						return;
+					}
 				}
 				if (this.settings.clearOnFileChange && this.session.filePath) {
 					if (!file || file.path !== this.session.filePath) {
@@ -341,6 +363,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				break;
 			case 'clear-cache':
 				void this.clearCache(true);
+				break;
+			case 'open-candidates-at-cursor':
+				this.openCandidatesAtCursor();
 				break;
 			default:
 				break;
@@ -1029,6 +1054,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	}
 
 	clearSession(notify: boolean): void {
+		this.previewNavigation = null;
 		this.session = emptySession();
 		this.applySessionToEditors();
 		this.hover.detach();
@@ -1098,7 +1124,16 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				const openState = heading
 					? { eState: { subpath: `#${heading}` } }
 					: undefined;
-				void this.app.workspace.getLeaf(false).openFile(targetFile, openState);
+				this.previewNavigation = beginPreviewNavigation(
+					this.liveSession().filePath,
+					targetFile.path,
+				);
+				void this.app.workspace
+					.getLeaf(false)
+					.openFile(targetFile, openState)
+					.catch(() => {
+						this.previewNavigation = null;
+					});
 			},
 			clearSession: () => {
 				this.clearSession(true);
@@ -1108,6 +1143,33 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				void this.ignoreTerm(query, groupKey);
 			},
 		};
+	}
+
+	private openCandidatesAtCursor(): void {
+		const lang = this.settings.uiLanguage;
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const cm = editorView(view?.editor);
+		if (!view?.file || !cm) {
+			new Notice(t(lang, 'noticeNoEditor'));
+			return;
+		}
+		const liveSession = cm.state.field(detailSessionField);
+		if (liveSession.filePath !== view.file.path) {
+			new Notice(t(lang, 'noticeNoCandidatesAtCursor'));
+			return;
+		}
+		const anchor = resolveAnchorAtPosition(
+			liveSession.anchors,
+			cm.state.selection.main.head,
+		);
+		if (!anchor) {
+			new Notice(t(lang, 'noticeNoCandidatesAtCursor'));
+			return;
+		}
+		this.attachHoverToActive();
+		if (!this.hover.openAnchorNow(anchor.id)) {
+			new Notice(t(lang, 'noticeNoCandidatesAtCursor'));
+		}
 	}
 
 	async ignoreTerm(query: string, groupKey: string): Promise<void> {

@@ -6,6 +6,7 @@ import { fillHighlightedExcerpt } from './splitHighlightedText';
 import { findAnchorIdFromEventTarget } from '../editor/highlighter';
 import {
 	normalizePopoverFocus,
+	resolveHoverSchedule,
 	resolvePopoverActionTarget,
 } from './popoverState';
 
@@ -27,16 +28,19 @@ export class DetailHoverController {
 	private host: PreviewHost | null = null;
 	private showTimer: number | null = null;
 	private hideTimer: number | null = null;
+	private scheduledAnchorId: string | null = null;
 	private activeAnchorId: string | null = null;
 	private focusedPath = '';
 	private focusedHitIndex = 0;
 	private cleanupDom: (() => void) | null = null;
 	private suppressMouseUntil = 0;
 	private opener: HTMLElement | null = null;
+	private editorDom: HTMLElement | null = null;
 
 	attach(editorDom: HTMLElement, host: PreviewHost): void {
 		this.detach();
 		this.host = host;
+		this.editorDom = editorDom;
 
 		const onMove = (evt: MouseEvent): void => {
 			if (Date.now() < this.suppressMouseUntil) {
@@ -56,6 +60,7 @@ export class DetailHoverController {
 			}
 			this.scheduleShow(id, evt.clientX, evt.clientY);
 		};
+		const onLeave = (): void => this.scheduleHide();
 
 		const onClick = (evt: MouseEvent): void => {
 			const id = findAnchorIdFromEventTarget(evt.target);
@@ -92,11 +97,13 @@ export class DetailHoverController {
 		};
 
 		editorDom.addEventListener('mousemove', onMove);
+		editorDom.addEventListener('mouseleave', onLeave);
 		editorDom.addEventListener('click', onClick, true);
 		editorDom.ownerDocument.addEventListener('keydown', onKeyDown, true);
 
 		this.cleanupDom = () => {
 			editorDom.removeEventListener('mousemove', onMove);
+			editorDom.removeEventListener('mouseleave', onLeave);
 			editorDom.removeEventListener('click', onClick, true);
 			editorDom.ownerDocument.removeEventListener('keydown', onKeyDown, true);
 		};
@@ -107,6 +114,7 @@ export class DetailHoverController {
 		this.cleanupDom?.();
 		this.cleanupDom = null;
 		this.host = null;
+		this.editorDom = null;
 	}
 
 	hide(): void {
@@ -120,13 +128,41 @@ export class DetailHoverController {
 		this.opener = null;
 	}
 
+	openAnchorNow(id: string): boolean {
+		const host = this.host;
+		const anchor = host?.getSession().anchors.find((item) => item.id === id);
+		const anchorEl = this.findAnchorElement(id);
+		if (!host || !anchor || !anchorEl) {
+			return false;
+		}
+		const badge = anchorEl.matches('.cm-detailsearch-linker-badge')
+			? anchorEl
+			: this.findAnchorElement(id, '.cm-detailsearch-linker-badge');
+		const rect = anchorEl.getBoundingClientRect();
+		void this.show(id, rect.left, rect.bottom, badge);
+		return true;
+	}
+
 	private scheduleShow(id: string, x: number, y: number): void {
 		this.clearHide();
-		if (this.activeAnchorId === id && this.popover) {
+		const action = resolveHoverSchedule(
+			this.scheduledAnchorId,
+			this.activeAnchorId,
+			!!this.popover,
+			id,
+		);
+		if (action === 'keep') {
+			return;
+		}
+		if (action === 'cancel') {
+			this.clearShow();
 			return;
 		}
 		this.clearShow();
+		this.scheduledAnchorId = id;
 		this.showTimer = window.setTimeout(() => {
+			this.showTimer = null;
+			this.scheduledAnchorId = null;
 			void this.show(id, x, y);
 		}, SHOW_DELAY_MS);
 	}
@@ -142,6 +178,7 @@ export class DetailHoverController {
 			window.clearTimeout(this.showTimer);
 			this.showTimer = null;
 		}
+		this.scheduledAnchorId = null;
 	}
 
 	private clearHide(): void {
@@ -409,5 +446,15 @@ export class DetailHoverController {
 		}
 		pop.style.top = `${Math.max(margin, top)}px`;
 		pop.style.left = `${Math.max(margin, left)}px`;
+	}
+
+	private findAnchorElement(
+		id: string,
+		selector = '[data-anchor-id]',
+	): HTMLElement | null {
+		const elements = this.editorDom?.querySelectorAll<HTMLElement>(selector);
+		return elements
+			? (Array.from(elements).find((element) => element.dataset.anchorId === id) ?? null)
+			: null;
 	}
 }
