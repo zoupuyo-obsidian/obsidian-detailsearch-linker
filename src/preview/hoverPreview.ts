@@ -4,11 +4,14 @@ import { t } from '../i18n';
 import type { UiLanguage } from '../settings';
 import { fillHighlightedExcerpt } from './splitHighlightedText';
 import { findAnchorIdFromEventTarget } from '../editor/highlighter';
+import {
+	normalizePopoverFocus,
+	resolvePopoverActionTarget,
+} from './popoverState';
 
 export interface PreviewHost {
 	getLang: () => UiLanguage;
 	getSession: () => DetailSessionState;
-	getAnchor(id: string): SessionAnchor | undefined;
 	createLink(anchor: SessionAnchor, candidatePath: string, hitIndex: number): void;
 	openNote(path: string, heading: string): void;
 	clearSession(): void;
@@ -29,6 +32,7 @@ export class DetailHoverController {
 	private focusedHitIndex = 0;
 	private cleanupDom: (() => void) | null = null;
 	private suppressMouseUntil = 0;
+	private opener: HTMLElement | null = null;
 
 	attach(editorDom: HTMLElement, host: PreviewHost): void {
 		this.detach();
@@ -66,15 +70,35 @@ export class DetailHoverController {
 			evt.preventDefault();
 			evt.stopPropagation();
 			this.suppressMouseUntil = Date.now() + 500;
-			void this.show(id, evt.clientX, evt.clientY);
+			const opener =
+				evt.target instanceof Element
+					? evt.target.closest<HTMLElement>('.cm-detailsearch-linker-badge')
+					: null;
+			const rect = opener?.getBoundingClientRect();
+			const x = evt.clientX || rect?.left || 0;
+			const y = evt.clientY || rect?.bottom || 0;
+			void this.show(id, x, y, opener);
+		};
+
+		const onKeyDown = (evt: KeyboardEvent): void => {
+			if (evt.key !== 'Escape' || !this.popover) {
+				return;
+			}
+			evt.preventDefault();
+			evt.stopPropagation();
+			const opener = this.opener;
+			this.hide();
+			opener?.focus();
 		};
 
 		editorDom.addEventListener('mousemove', onMove);
 		editorDom.addEventListener('click', onClick, true);
+		editorDom.ownerDocument.addEventListener('keydown', onKeyDown, true);
 
 		this.cleanupDom = () => {
 			editorDom.removeEventListener('mousemove', onMove);
 			editorDom.removeEventListener('click', onClick, true);
+			editorDom.ownerDocument.removeEventListener('keydown', onKeyDown, true);
 		};
 	}
 
@@ -93,6 +117,7 @@ export class DetailHoverController {
 		this.activeAnchorId = null;
 		this.focusedPath = '';
 		this.focusedHitIndex = 0;
+		this.opener = null;
 	}
 
 	private scheduleShow(id: string, x: number, y: number): void {
@@ -126,10 +151,15 @@ export class DetailHoverController {
 		}
 	}
 
-	private async show(id: string, x: number, y: number): Promise<void> {
+	private async show(
+		id: string,
+		x: number,
+		y: number,
+		opener: HTMLElement | null = null,
+	): Promise<void> {
 		const host = this.host;
-		const anchor = host?.getAnchor(id);
 		const session = host?.getSession();
+		const anchor = session?.anchors.find((item) => item.id === id);
 		if (!host || !anchor || !session) {
 			return;
 		}
@@ -140,10 +170,13 @@ export class DetailHoverController {
 		this.clearShow();
 		this.clearHide();
 		this.activeAnchorId = id;
-		if (!this.focusedPath && group.candidates[0]) {
-			this.focusedPath = group.candidates[0].path;
-			this.focusedHitIndex = 0;
-		}
+		this.opener = opener;
+		const focus = normalizePopoverFocus(group, {
+			path: this.focusedPath,
+			hitIndex: this.focusedHitIndex,
+		});
+		this.focusedPath = focus.path;
+		this.focusedHitIndex = focus.hitIndex;
 		await this.render(anchor, group, session, host, x, y);
 	}
 
@@ -158,6 +191,7 @@ export class DetailHoverController {
 		this.popover?.remove();
 		const doc = activeDocument;
 		const pop = doc.body.createDiv({ cls: 'detailsearch-linker-popover' });
+		pop.setAttr('role', 'dialog');
 		this.popover = pop;
 
 		pop.addEventListener('mouseenter', () => this.clearHide());
@@ -196,18 +230,36 @@ export class DetailHoverController {
 				this.focusedPath = candidate.path;
 				this.focusedHitIndex = 0;
 				const freshSession = host.getSession();
-				const freshGroup = getGroup(freshSession, anchor.groupKey);
-				if (!freshGroup) {
+				const freshAnchor = freshSession.anchors.find((item) => item.id === anchor.id);
+				const freshGroup = freshAnchor
+					? getGroup(freshSession, freshAnchor.groupKey)
+					: undefined;
+				if (!freshAnchor || !freshGroup) {
 					return;
 				}
-				void this.render(anchor, freshGroup, freshSession, host, x, y);
+				const focus = normalizePopoverFocus(freshGroup, {
+					path: this.focusedPath,
+					hitIndex: this.focusedHitIndex,
+				});
+				this.focusedPath = focus.path;
+				this.focusedHitIndex = focus.hitIndex;
+				void this.render(freshAnchor, freshGroup, freshSession, host, x, y);
 			});
 		}
 
 		const previewBox = pop.createDiv({ cls: 'detailsearch-linker-popover__preview' });
 		const focused = group.candidates.find((c) => c.path === this.focusedPath);
 		if (focused) {
-			this.renderHitPreview(previewBox, focused, this.focusedHitIndex, group, session, host, lang);
+			this.renderHitPreview(
+				previewBox,
+				focused,
+				this.focusedHitIndex,
+				group,
+				host,
+				anchor.id,
+				x,
+				y,
+			);
 		}
 
 		const actions = pop.createDiv({ cls: 'detailsearch-linker-popover__actions' });
@@ -215,20 +267,45 @@ export class DetailHoverController {
 			cls: 'mod-cta',
 			text: t(lang, 'createLink'),
 		});
-		linkBtn.disabled = !group.canLink || !this.focusedPath;
+		linkBtn.disabled =
+			!group.canLink ||
+			!resolvePopoverActionTarget(
+				session,
+				anchor.id,
+				this.focusedPath,
+				this.focusedHitIndex,
+			);
 		linkBtn.addEventListener('click', () => {
-			if (this.focusedPath) {
-				this.hide();
-				host.createLink(anchor, this.focusedPath, this.focusedHitIndex);
+			const target = resolvePopoverActionTarget(
+				host.getSession(),
+				anchor.id,
+				this.focusedPath,
+				this.focusedHitIndex,
+			);
+			if (!target?.group.canLink) {
+				return;
 			}
+			this.hide();
+			host.createLink(target.anchor, target.candidate.path, target.hitIndex);
 		});
 		const openBtn = actions.createEl('button', { text: t(lang, 'openNote') });
-		openBtn.disabled = !this.focusedPath;
+		openBtn.disabled = !resolvePopoverActionTarget(
+			session,
+			anchor.id,
+			this.focusedPath,
+			this.focusedHitIndex,
+		);
 		openBtn.addEventListener('click', () => {
-			if (this.focusedPath) {
-				const hit = focused?.hits[this.focusedHitIndex];
-				host.openNote(this.focusedPath, hit?.heading ?? '');
+			const target = resolvePopoverActionTarget(
+				host.getSession(),
+				anchor.id,
+				this.focusedPath,
+				this.focusedHitIndex,
+			);
+			if (!target) {
+				return;
 			}
+			host.openNote(target.candidate.path, target.hit.heading);
 		});
 		if (host.hasActiveSession()) {
 			const clearBtn = actions.createEl('button', { text: t(lang, 'clearHighlights') });
@@ -252,9 +329,10 @@ export class DetailHoverController {
 		candidate: NoteCandidate,
 		hitIndex: number,
 		group: ResultGroup,
-		session: DetailSessionState,
 		host: PreviewHost,
-		_lang: UiLanguage,
+		anchorId: string,
+		x: number,
+		y: number,
 	): void {
 		container.empty();
 		const hits = candidate.hits;
@@ -269,16 +347,25 @@ export class DetailHoverController {
 					btn.addClass('is-active');
 				}
 				btn.addEventListener('click', () => {
-					this.focusedHitIndex = i;
 					const freshSession = host.getSession();
-					this.renderHitPreview(
-						container,
-						candidate,
+					const target = resolvePopoverActionTarget(
+						freshSession,
+						anchorId,
+						candidate.path,
 						i,
-						group,
+					);
+					if (!target) {
+						return;
+					}
+					this.focusedPath = target.candidate.path;
+					this.focusedHitIndex = target.hitIndex;
+					void this.render(
+						target.anchor,
+						target.group,
 						freshSession,
 						host,
-						_lang,
+						x,
+						y,
 					);
 				});
 			});

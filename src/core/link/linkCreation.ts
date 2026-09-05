@@ -42,6 +42,13 @@ export function targetMtimeMatches(hitMtime: number, targetMtime: number): boole
 	return hitMtime === targetMtime;
 }
 
+export function sourceMatchesLiveSession(
+	sourcePath: string,
+	liveSessionFilePath: string,
+): boolean {
+	return sourcePath.length > 0 && sourcePath === liveSessionFilePath;
+}
+
 export function generateHeadingLink<T>(
 	generateMarkdownLink: MarkdownLinkGenerator<T>,
 	targetFile: T,

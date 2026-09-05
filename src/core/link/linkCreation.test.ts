@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
 	generateHeadingLink,
 	resolveHeadingAtOffset,
+	sourceMatchesLiveSession,
 	targetMtimeMatches,
 	type CachedHeading,
 } from './linkCreation.ts';
@@ -47,6 +48,12 @@ test('falls back to scan heading only when metadata cache is unavailable', () =>
 test('detects target mtime mismatch', () => {
 	assert.equal(targetMtimeMatches(10, 10), true);
 	assert.equal(targetMtimeMatches(10, 11), false);
+});
+
+test('rejects link action when source and live session files differ', () => {
+	assert.equal(sourceMatchesLiveSession('Source.md', 'Source.md'), true);
+	assert.equal(sourceMatchesLiveSession('Other.md', 'Source.md'), false);
+	assert.equal(sourceMatchesLiveSession('', ''), false);
 });
 
 test('passes target, source path, heading subpath, and alias to generator', () => {

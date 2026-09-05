@@ -1,4 +1,5 @@
 import {
+	Facet,
 	RangeSetBuilder,
 	StateEffect,
 	StateField,
@@ -25,20 +26,27 @@ class BadgeWidget extends WidgetType {
 	constructor(
 		private readonly count: number,
 		private readonly anchorId: string,
+		private readonly ariaLabel: string,
 	) {
 		super();
 	}
 
 	eq(other: BadgeWidget): boolean {
-		return this.count === other.count && this.anchorId === other.anchorId;
+		return (
+			this.count === other.count &&
+			this.anchorId === other.anchorId &&
+			this.ariaLabel === other.ariaLabel
+		);
 	}
 
 	toDOM(view: EditorView): HTMLElement {
-		const el = view.dom.ownerDocument.createElement('span');
+		const el = view.dom.ownerDocument.createElement('button');
 		el.className = 'cm-detailsearch-linker-badge';
 		el.dataset.anchorId = this.anchorId;
 		el.textContent = String(this.count);
-		el.setAttribute('aria-label', `${this.count}`);
+		el.type = 'button';
+		el.setAttribute('aria-haspopup', 'dialog');
+		el.setAttribute('aria-label', this.ariaLabel);
 		return el;
 	}
 
@@ -81,7 +89,10 @@ function collectPlannedRanges(state: DetailSessionState): PlannedRange[] {
 	return planned;
 }
 
-function buildDecorations(state: DetailSessionState): DecorationSet {
+function buildDecorations(
+	state: DetailSessionState,
+	badgeAriaLabel: (count: number) => string,
+): DecorationSet {
 	if (state.anchors.length === 0) {
 		return Decoration.none;
 	}
@@ -122,7 +133,11 @@ function buildDecorations(state: DetailSessionState): DecorationSet {
 				item.from,
 				item.to,
 				Decoration.widget({
-					widget: new BadgeWidget(badgeCount, match.anchor.id),
+					widget: new BadgeWidget(
+						badgeCount,
+						match.anchor.id,
+						badgeAriaLabel(badgeCount),
+					),
 					side: 1,
 				}),
 			);
@@ -152,14 +167,28 @@ export const detailSessionField = StateField.define<DetailSessionState>({
 		}
 		return { ...value, anchors: mapped };
 	},
-	provide: (field) =>
-		EditorView.decorations.from(field, (value) => buildDecorations(value)),
 });
 
-export function detailsearchLinkerEditorExtension(): Extension {
-	return detailSessionField;
-}
+const badgeAriaLabelFacet = Facet.define<(count: number) => string>();
 
+export function detailsearchLinkerEditorExtension(
+	badgeAriaLabel: (count: number) => string = (count) =>
+		`${count} link candidates`,
+): Extension {
+	return [
+		detailSessionField,
+		badgeAriaLabelFacet.of(badgeAriaLabel),
+		EditorView.decorations.compute(
+			[detailSessionField, badgeAriaLabelFacet],
+			(state) => {
+				const label =
+					state.facet(badgeAriaLabelFacet)[0] ??
+					((count: number) => `${count} link candidates`);
+				return buildDecorations(state.field(detailSessionField), label);
+			},
+		),
+	];
+}
 export function findAnchorIdFromEventTarget(target: EventTarget | null): string | null {
 	if (!(target instanceof Element)) {
 		return null;

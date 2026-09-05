@@ -9,7 +9,6 @@ test('PreviewHost ignoreTerm callback receives query and session groupKey', () =
 	const host: PreviewHost = {
 		getLang: () => 'en',
 		getSession: () => emptySession(),
-		getAnchor: () => undefined,
 		createLink: () => {},
 		openNote: () => {},
 		clearSession: () => {},

@@ -37,15 +37,28 @@
 .cm-detailsearch-linker-badge {
 	display: inline-block;
 	min-width: 1.1em;
+	width: auto;
+	height: auto;
 	margin-left: 2px;
 	padding: 0 4px;
+	border: 0;
 	border-radius: 8px;
 	background-color: var(--text-accent);
 	color: var(--text-on-accent);
 	font-size: 10px;
+	font-family: inherit;
+	font-weight: inherit;
 	line-height: 1.4;
 	vertical-align: super;
 	cursor: pointer;
+	box-shadow: none;
+	appearance: none;
+}
+
+.cm-detailsearch-linker-badge:hover,
+.cm-detailsearch-linker-badge:focus-visible {
+	background-color: var(--text-accent-hover);
+	color: var(--text-on-accent);
 }
 
 .detailsearch-linker-popover {

@@ -31,6 +31,7 @@ import {
 import {
 	generateHeadingLink,
 	resolveHeadingAtOffset,
+	sourceMatchesLiveSession,
 	targetMtimeMatches,
 } from './core/link/linkCreation';
 import { buildAnchorSpots, ModalQuerySource, SelectionQuerySource } from './core/query/selectionSource';
@@ -143,7 +144,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.applyCacheOptions();
 
 		this.registerEditorExtension([
-			detailsearchLinkerEditorExtension(),
+			detailsearchLinkerEditorExtension((count) =>
+				tf(this.settings.uiLanguage, 'badgeCandidates', count),
+			),
 			EditorView.updateListener.of((update) => {
 				if (!update.docChanged) {
 					return;
@@ -181,6 +184,14 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.applyUiLanguage();
 
 		this.registerVaultEvents();
+		const syncWorkspaceViews = (): void => {
+			this.applySessionToEditors();
+			this.attachHoverToActive();
+		};
+		this.registerEvent(
+			this.app.workspace.on('active-leaf-change', syncWorkspaceViews),
+		);
+		this.registerEvent(this.app.workspace.on('layout-change', syncWorkspaceViews));
 		this.registerEvent(
 			this.app.workspace.on('file-open', (file) => {
 				if (
@@ -1041,6 +1052,16 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				leaf.view.file?.path === this.session.filePath && this.session.filePath
 					? this.session
 					: emptySession();
+			const current = cm.state.field(detailSessionField);
+			if (
+				current === state ||
+				(!current.filePath &&
+					!state.filePath &&
+					current.anchors.length === 0 &&
+					state.anchors.length === 0)
+			) {
+				return;
+			}
 			cm.dispatch({ effects: setDetailSessionEffect.of(state) });
 		});
 	}
@@ -1065,7 +1086,6 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		return {
 			getLang: () => this.settings.uiLanguage,
 			getSession: () => this.liveSession(),
-			getAnchor: (id) => this.liveAnchor(id),
 			createLink: (anchor, candidatePath, hitIndex) => {
 				this.createLink(anchor, candidatePath, hitIndex);
 			},
@@ -1130,24 +1150,26 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		return this.session;
 	}
 
-	private liveAnchor(id: string): SessionAnchor | undefined {
-		const session = this.liveSession();
-		return session.anchors.find((a) => a.id === id);
-	}
-
 	private createLink(anchor: SessionAnchor, candidatePath: string, hitIndex: number): void {
 		const lang = this.settings.uiLanguage;
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = editorView(view?.editor);
 		const sourcePath = view?.file?.path ?? '';
-		const group = getGroup(this.session, anchor.groupKey);
-		if (!cm || !group?.canLink) {
+		if (!cm) {
 			return;
 		}
 
-		const live = this.liveAnchor(anchor.id);
+		const liveSession = cm.state.field(detailSessionField);
+		if (!sourceMatchesLiveSession(sourcePath, liveSession.filePath)) {
+			return;
+		}
+		const live = liveSession.anchors.find((item) => item.id === anchor.id);
 		if (!live) {
 			new Notice(t(lang, 'noticeAnchorChanged'));
+			return;
+		}
+		const group = getGroup(liveSession, live.groupKey);
+		if (!group?.canLink) {
 			return;
 		}
 
@@ -1158,7 +1180,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				live.from,
 				live.to,
 				group.displayText,
-				this.settings.caseSensitive,
+				liveSession.caseSensitive,
 			)
 		) {
 			new Notice(t(lang, 'noticeAnchorChanged'));
@@ -1205,11 +1227,12 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			changes: { from: live.from, to: live.to, insert },
 		});
 
+		const mappedSession = cm.state.field(detailSessionField);
 		this.session = {
-			...cm.state.field(detailSessionField),
-			anchors: cm.state.field(detailSessionField).anchors.filter((a) => a.id !== anchor.id),
+			...mappedSession,
+			anchors: mappedSession.anchors.filter((item) => item.id !== live.id),
 		};
-		cm.dispatch({ effects: setDetailSessionEffect.of(this.session) });
+		this.applySessionToEditors();
 		this.refreshStatus();
 		if (this.session.anchors.length === 0) {
 			this.hover.detach();
