@@ -1,14 +1,16 @@
 {
 	"name": "obsidian-detailsearch-linker",
 	"version": "1.0.3",
-	"description": "Search vault note bodies on demand for a selected term and insert heading wikilinks.",
+	"description": "Search vault note bodies on demand for a selected term and insert heading links in Obsidian's configured internal-link format.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"test": "node --import tsx --test src/**/*.test.ts",
-		"lint": "eslint ."
+		"lint": "eslint .",
+		"verify:release": "node scripts/verify-release.mjs",
+		"check": "npm test && npm run lint && npm run build && npm run verify:release"
 	},
 	"keywords": [],
 	"license": "0-BSD",

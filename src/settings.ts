@@ -8,95 +8,32 @@ import {
 } from 'obsidian';
 import type DetailSearchLinkerPlugin from './main';
 import { t, type I18nKey } from './i18n';
-import { clampScopeValue, type ScopeMode } from './core/search/scopeFilter';
-import { normalizeIgnoredTerms, parseIgnoredTermsText } from './core/ignore/ignoredTerms';
-import { MAX_FILE_BYTES } from './core/query/queryValidation';
-import { HARD_CAP_AUTO_QUERIES } from './core/extract/queryExtractor';
+import { parseIgnoredTermsText } from './core/ignore/ignoredTerms';
+import {
+	INTEGER_SETTING_BOUNDS,
+	migrateSettingsCore,
+	repairOrderedPairAfterChange,
+	type CacheMode,
+	type DetailSearchLinkerSettings,
+	type IntegerSettingKey,
+	type OrderedPairSettingKey,
+	type UiLanguage,
+} from './core/settings/settingsSchema';
+import type { ScopeMode } from './core/search/scopeFilter';
 
-export type UiLanguage = 'ja' | 'en';
-export type HighlightStyle = 'invert' | 'marker' | 'color' | 'underline';
-export type CacheMode = 'memory' | 'persistent';
-
-export interface DetailSearchLinkerSettings {
-	uiLanguage: UiLanguage;
-	includeFolders: string[];
-	excludeFolders: string[];
-	scopeMode: ScopeMode;
-	recentDays: number;
-	worksetSize: number;
-	maxFiles: number;
-	maxFileBytes: number;
-	caseSensitive: boolean;
-	cacheMode: CacheMode;
-	cacheMaxMb: number;
-	excerptLength: number;
-	highlightStyle: HighlightStyle;
-	showBadge: boolean;
-	clearOnFileChange: boolean;
-	maxHitsPerNote: number;
-	maxCandidateNotes: number;
-	focusedExtraction: boolean;
-	normalProsePhrases: boolean;
-	broadNgram: boolean;
-	autoMinTermLength: number;
-	autoMaxTermLength: number;
-	ngramMinLength: number;
-	ngramMaxLength: number;
-	maxAutoQueries: number;
-	ngramSpanLimit: number;
-	autoStopWords: string[];
-	ignoredTerms: string[];
-}
+export {
+	DEFAULT_SETTINGS,
+	INTEGER_SETTING_BOUNDS,
+	type CacheMode,
+	type DetailSearchLinkerSettings,
+	type HighlightStyle,
+	type OrderedPairSettingKey,
+	type UiLanguage,
+} from './core/settings/settingsSchema';
 
 export function defaultUiLanguage(): UiLanguage {
 	return getLanguage() === 'ja' ? 'ja' : 'en';
 }
-
-export const DEFAULT_SETTINGS: DetailSearchLinkerSettings = {
-	uiLanguage: 'en',
-	includeFolders: [],
-	excludeFolders: [],
-	scopeMode: 'all',
-	recentDays: 30,
-	worksetSize: 50,
-	maxFiles: 500,
-	maxFileBytes: 512_000,
-	caseSensitive: false,
-	cacheMode: 'persistent',
-	cacheMaxMb: 8,
-	excerptLength: 160,
-	highlightStyle: 'invert',
-	showBadge: true,
-	clearOnFileChange: true,
-	maxHitsPerNote: 8,
-	maxCandidateNotes: 80,
-	focusedExtraction: true,
-	normalProsePhrases: true,
-	broadNgram: false,
-	autoMinTermLength: 3,
-	autoMaxTermLength: 32,
-	ngramMinLength: 2,
-	ngramMaxLength: 6,
-	maxAutoQueries: 40,
-	ngramSpanLimit: 12,
-	autoStopWords: [
-		'the',
-		'a',
-		'an',
-		'and',
-		'or',
-		'but',
-		'の',
-		'に',
-		'は',
-		'を',
-		'が',
-		'と',
-		'で',
-		'も',
-	],
-	ignoredTerms: [],
-};
 
 function linesToList(value: string): string[] {
 	return value
@@ -105,88 +42,8 @@ function linesToList(value: string): string[] {
 		.filter(Boolean);
 }
 
-export function migrateSettings(raw: Partial<DetailSearchLinkerSettings>): DetailSearchLinkerSettings {
-	const rest = { ...raw };
-	return {
-		...DEFAULT_SETTINGS,
-		...rest,
-		uiLanguage: rest.uiLanguage ?? defaultUiLanguage(),
-		includeFolders: Array.isArray(rest.includeFolders)
-			? rest.includeFolders.map((p) => normalizePath(p))
-			: DEFAULT_SETTINGS.includeFolders,
-		excludeFolders: Array.isArray(rest.excludeFolders)
-			? rest.excludeFolders.map((p) => normalizePath(p))
-			: DEFAULT_SETTINGS.excludeFolders,
-		scopeMode: rest.scopeMode ?? DEFAULT_SETTINGS.scopeMode,
-		recentDays: clampScopeValue(rest.recentDays ?? DEFAULT_SETTINGS.recentDays, 0, 3650, 30),
-		worksetSize: clampScopeValue(rest.worksetSize ?? DEFAULT_SETTINGS.worksetSize, 0, 500, 50),
-		maxFiles: clampScopeValue(rest.maxFiles ?? DEFAULT_SETTINGS.maxFiles, 10, 10_000, 500),
-		maxFileBytes: clampScopeValue(
-			rest.maxFileBytes ?? DEFAULT_SETTINGS.maxFileBytes,
-			4_096,
-			MAX_FILE_BYTES,
-			512_000,
-		),
-		cacheMaxMb: clampScopeValue(rest.cacheMaxMb ?? DEFAULT_SETTINGS.cacheMaxMb, 1, 64, 8),
-		excerptLength: clampScopeValue(rest.excerptLength ?? DEFAULT_SETTINGS.excerptLength, 40, 800, 160),
-		maxHitsPerNote: clampScopeValue(
-			rest.maxHitsPerNote ?? DEFAULT_SETTINGS.maxHitsPerNote,
-			1,
-			50,
-			8,
-		),
-		maxCandidateNotes: clampScopeValue(
-			rest.maxCandidateNotes ?? DEFAULT_SETTINGS.maxCandidateNotes,
-			5,
-			500,
-			80,
-		),
-		autoMinTermLength: clampScopeValue(
-			rest.autoMinTermLength ?? DEFAULT_SETTINGS.autoMinTermLength,
-			2,
-			20,
-			3,
-		),
-		autoMaxTermLength: clampScopeValue(
-			rest.autoMaxTermLength ?? DEFAULT_SETTINGS.autoMaxTermLength,
-			4,
-			80,
-			32,
-		),
-		ngramMinLength: clampScopeValue(
-			rest.ngramMinLength ?? DEFAULT_SETTINGS.ngramMinLength,
-			2,
-			12,
-			2,
-		),
-		ngramMaxLength: clampScopeValue(
-			rest.ngramMaxLength ?? DEFAULT_SETTINGS.ngramMaxLength,
-			2,
-			16,
-			6,
-		),
-		maxAutoQueries: clampScopeValue(
-			rest.maxAutoQueries ?? DEFAULT_SETTINGS.maxAutoQueries,
-			5,
-			HARD_CAP_AUTO_QUERIES,
-			40,
-		),
-		ngramSpanLimit: clampScopeValue(
-			rest.ngramSpanLimit ?? DEFAULT_SETTINGS.ngramSpanLimit,
-			4,
-			40,
-			12,
-		),
-		autoStopWords: Array.isArray(rest.autoStopWords)
-			? rest.autoStopWords
-			: DEFAULT_SETTINGS.autoStopWords,
-		ignoredTerms: Array.isArray(rest.ignoredTerms)
-			? normalizeIgnoredTerms(
-					rest.ignoredTerms,
-					rest.caseSensitive ?? DEFAULT_SETTINGS.caseSensitive,
-				)
-			: DEFAULT_SETTINGS.ignoredTerms,
-	};
+export function migrateSettings(raw: unknown): DetailSearchLinkerSettings {
+	return migrateSettingsCore(raw, { defaultUiLanguage, normalizePath });
 }
 
 export class DetailSearchLinkerSettingTab extends PluginSettingTab {
@@ -211,31 +68,24 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 			this.folderTextarea('settingsIncludeFolders', 'settingsIncludeFoldersDesc', 'includeFolders'),
 			this.folderTextarea('settingsExcludeFolders', 'settingsExcludeFoldersDesc', 'excludeFolders'),
 			this.scopeModeRow(),
-			this.sliderRow('settingsRecentDays', 'settingsRecentDaysDesc', 'recentDays', 0, 365, 1),
-			this.sliderRow('settingsWorksetSize', 'settingsWorksetSizeDesc', 'worksetSize', 0, 500, 5),
-			this.sliderRow('settingsMaxFiles', 'settingsMaxFilesDesc', 'maxFiles', 10, 5000, 10),
+			this.boundedSliderRow('settingsRecentDays', 'settingsRecentDaysDesc', 'recentDays'),
+			this.boundedSliderRow('settingsWorksetSize', 'settingsWorksetSizeDesc', 'worksetSize'),
+			this.boundedSliderRow('settingsMaxFiles', 'settingsMaxFilesDesc', 'maxFiles'),
 			this.sliderRow(
 				'settingsMaxFileBytes',
 				'settingsMaxFileBytesDesc',
 				'maxFileBytes',
-				4096,
-				MAX_FILE_BYTES,
-				4096,
+				INTEGER_SETTING_BOUNDS.maxFileBytes.min,
+				INTEGER_SETTING_BOUNDS.maxFileBytes.max,
+				INTEGER_SETTING_BOUNDS.maxFileBytes.step,
 				(v) => `${Math.round(v / 1024)} KB`,
 			),
 			this.toggleRow('settingsCaseSensitive', 'caseSensitive'),
 			this.cacheModeRow(),
-			this.sliderRow('settingsCacheMaxMb', 'settingsCacheMaxMbDesc', 'cacheMaxMb', 1, 64, 1, (v) => `${v} MB`),
-			this.sliderRow('settingsExcerptLength', 'settingsExcerptLengthDesc', 'excerptLength', 40, 800, 20),
-			this.sliderRow('settingsMaxHitsPerNote', 'settingsMaxHitsPerNoteDesc', 'maxHitsPerNote', 1, 30, 1),
-			this.sliderRow(
-				'settingsMaxCandidateNotes',
-				'settingsMaxCandidateNotesDesc',
-				'maxCandidateNotes',
-				5,
-				300,
-				5,
-			),
+			this.boundedSliderRow('settingsCacheMaxMb', 'settingsCacheMaxMbDesc', 'cacheMaxMb', (v) => `${v} MB`),
+			this.boundedSliderRow('settingsExcerptLength', 'settingsExcerptLengthDesc', 'excerptLength'),
+			this.boundedSliderRow('settingsMaxHitsPerNote', 'settingsMaxHitsPerNoteDesc', 'maxHitsPerNote'),
+			this.boundedSliderRow('settingsMaxCandidateNotes', 'settingsMaxCandidateNotesDesc', 'maxCandidateNotes'),
 			{
 				name: this.L('settingsHighlightStyle'),
 				desc: this.L('settingsHighlightStyleDesc'),
@@ -256,12 +106,12 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 			this.toggleRow('settingsFocusedExtraction', 'focusedExtraction'),
 			this.toggleRow('settingsNormalProse', 'normalProsePhrases'),
 			this.toggleRow('settingsBroadNgram', 'broadNgram'),
-			this.sliderRow('settingsAutoMinTerm', 'settingsAutoMinTermDesc', 'autoMinTermLength', 2, 12, 1),
-			this.sliderRow('settingsAutoMaxTerm', 'settingsAutoMaxTermDesc', 'autoMaxTermLength', 4, 60, 1),
-			this.sliderRow('settingsNgramMin', 'settingsNgramMinDesc', 'ngramMinLength', 2, 10, 1),
-			this.sliderRow('settingsNgramMax', 'settingsNgramMaxDesc', 'ngramMaxLength', 2, 12, 1),
-			this.sliderRow('settingsMaxAutoQueries', 'settingsMaxAutoQueriesDesc', 'maxAutoQueries', 5, HARD_CAP_AUTO_QUERIES, 5),
-			this.sliderRow('settingsNgramSpanLimit', 'settingsNgramSpanLimitDesc', 'ngramSpanLimit', 4, 30, 1),
+			this.boundedSliderRow('settingsAutoMinTerm', 'settingsAutoMinTermDesc', 'autoMinTermLength'),
+			this.boundedSliderRow('settingsAutoMaxTerm', 'settingsAutoMaxTermDesc', 'autoMaxTermLength'),
+			this.boundedSliderRow('settingsNgramMin', 'settingsNgramMinDesc', 'ngramMinLength'),
+			this.boundedSliderRow('settingsNgramMax', 'settingsNgramMaxDesc', 'ngramMaxLength'),
+			this.boundedSliderRow('settingsMaxAutoQueries', 'settingsMaxAutoQueriesDesc', 'maxAutoQueries'),
+			this.boundedSliderRow('settingsNgramSpanLimit', 'settingsNgramSpanLimitDesc', 'ngramSpanLimit'),
 			this.stopWordsRow(),
 			this.ignoredTermsRow(),
 			this.cacheInfoRow(),
@@ -269,6 +119,16 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 	}
 
 	setControlValue(key: string, value: unknown): void | Promise<void> {
+		let counterpartChanged = false;
+		if (this.isOrderedPairSettingKey(key) && typeof value === 'number') {
+			this.plugin.settings[key] = value;
+			counterpartChanged = repairOrderedPairAfterChange(this.plugin.settings, key);
+		}
+		if (counterpartChanged) {
+			const result = super.setControlValue(key, value);
+			void Promise.resolve(result).then(() => this.update());
+			return result;
+		}
 		if (key === 'highlightStyle' || key === 'showBadge') {
 			const result = super.setControlValue(key, value);
 			void Promise.resolve(result).then(() => this.plugin.refreshHighlightAppearance());
@@ -513,7 +373,14 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 							.setValue(this.plugin.settings[field] as number)
 							.onChange(async (value) => {
 								(this.plugin.settings[field] as number) = value;
+								const counterpartChanged = repairOrderedPairAfterChange(
+									this.plugin.settings,
+									field,
+								);
 								await this.plugin.saveSettings();
+								if (counterpartChanged) {
+									this.update();
+								}
 							}),
 					);
 				if (display) {
@@ -521,5 +388,22 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 				}
 			},
 		};
+	}
+
+	private boundedSliderRow(
+		nameKey: I18nKey,
+		descKey: I18nKey,
+		field: IntegerSettingKey,
+		display?: (v: number) => string,
+	): SettingDefinitionRender {
+		const { min, max, step } = INTEGER_SETTING_BOUNDS[field];
+		return this.sliderRow(nameKey, descKey, field, min, max, step, display);
+	}
+
+	private isOrderedPairSettingKey(key: string): key is OrderedPairSettingKey {
+		return key === 'autoMinTermLength'
+			|| key === 'autoMaxTermLength'
+			|| key === 'ngramMinLength'
+			|| key === 'ngramMaxLength';
 	}
 }

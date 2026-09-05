@@ -46,6 +46,7 @@ function verifyProductionBundle() {
 	const bundle = readFileSync('main.js', 'utf8');
 	const required = [
 		'search-current-note',
+		'open-candidates-at-cursor',
 		'cmdSearchCurrentNote',
 		'Find body link candidates in current note',
 		// minified i18n uses \\u escapes for the Japanese command label

@@ -9,6 +9,7 @@ export default tseslint.config(
 		'dist',
 		'release-assets',
 		'esbuild.config.mjs',
+		'scripts/*.mjs',
 		'versions.json',
 		'main.js',
 		'package.json',
