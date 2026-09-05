@@ -1,6 +1,6 @@
-# DetailSearch Linker 1.0.3
+# DetailSearch Linker 1.0.4
 
-Search other note bodies on demand from a selection or from terms extracted in the current note. Preview the destination excerpt and nearest heading, then insert a heading link in Obsidian's configured internal-link format.
+Search other note bodies on demand from a selection or from terms extracted in the current note. Preview the destination excerpt and nearest heading, then insert a heading link in the configured internal-link format.
 
 ## Highlights
 
