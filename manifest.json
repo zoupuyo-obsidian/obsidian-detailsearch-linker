@@ -1,0 +1,10 @@
+{
+	"id": "detailsearch-linker",
+	"name": "DetailSearch Linker",
+	"version": "1.0.3",
+	"minAppVersion": "1.13.0",
+	"description": "Search other note bodies on demand for a selected term, highlight it in the current note, and insert heading wikilinks.",
+	"author": "zoupuyo",
+	"authorUrl": "https://github.com/zoupuyo-obsidian",
+	"isDesktopOnly": false
+}
