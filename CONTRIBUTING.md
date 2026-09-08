@@ -27,12 +27,13 @@ CI runs the same check on Node 20/22 and Ubuntu/Windows, then uploads `main.js`,
 
 After `npm run build`, **disable and re-enable the plugin** (Obsidian does not hot-reload `main.js`). Then:
 
-1. Select a short term in a note and run **DetailSearch Linker: Find body link candidates in current note**. Only that term is highlighted in the current note.
-2. Hover a highlight. The popover appears, takes keyboard focus, and Tab / arrow keys move inside it without a click. Moving the mouse off the highlight returns typing to the note.
-3. Click **Open note**. The candidate opens in a new tab (or its existing tab). The opened note body is not invert-highlighted. The source tab keeps its highlights.
-4. Return to the source tab. Highlights and the popover still work.
-5. With the badge hidden, run **DetailSearch Linker: Go to next highlight**. The popover opens and accepts Tab / arrows. After Escape, `Tab` and `Enter` type in the editor again. **Open link candidates at cursor** also opens the popover.
-6. Split the source note. Both panes show the same highlights.
+1. Select a short term in a note and run **DSL: Find body candidates** while the selection remains active. Confirm that the primary action ignores the selection and runs body-candidate auto-extraction.
+2. With a short term still selected, run **DSL: Search selection**. Only that selected occurrence is highlighted in the current note; other occurrences are not highlighted by this command.
+3. Hover a highlight. The popover appears, takes keyboard focus, and Tab / arrow keys move inside it without a click. Moving the mouse off the highlight returns typing to the note.
+4. Click **Open note**. The candidate opens in a new tab (or its existing tab). The opened note body is not invert-highlighted. The source tab keeps its highlights.
+5. Return to the source tab. Highlights and the popover still work.
+6. With the badge hidden, run **DetailSearch Linker: Go to next highlight**. The popover opens and accepts Tab / arrows. After Escape, `Tab` and `Enter` type in the editor again. **Open link candidates at cursor** also opens the popover.
+7. Split the source note. Both panes show the same highlights.
 
 ## Reporting issues
 

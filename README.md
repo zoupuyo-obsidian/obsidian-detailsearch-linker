@@ -15,7 +15,7 @@ Inserted links follow Obsidian's **Use Wikilinks** setting (wikilink or Markdown
 | | Spot Linker | DetailSearch Linker |
 |--|-------------|---------------------|
 | What is searched | The **open note** | **Other notes' bodies** |
-| Where terms come from | File names, titles, aliases, optional title fragments | A **selection** in the open note, or terms **extracted from** the open note |
+| Where terms come from | File names, titles, aliases, optional title fragments | Terms **heuristically extracted from** the open note, or an explicit **selection** command |
 | What a match means | “This wording looks like another note’s name.” | “This wording also appears in another note’s body.” |
 | Typical link | `[[Note name]]` to that note | A heading link toward the paragraph that matched |
 | Ignore list | Hides that wording in the open note | Skips that wording in **auto-extract** only |
@@ -57,22 +57,22 @@ After DetailSearch Linker is accepted into the Obsidian community directory:
 
 ## Basic operations
 
-The command you will use most is **DSL: Search all**. The ribbon search icon runs the same family of actions, with one extra rule for clearing highlights. `DSL` is the short label for DetailSearch Linker.
+The command you will use most is **DSL: Find body candidates**. The ribbon search icon runs the same auto-extract action. Both ignore any text selection and never read the clipboard. `DSL` is the short label for DetailSearch Linker.
 
 ### Search copied text on iPhone
 
-Register both **DSL: Search all** and **DSL: Search copied text** in the mobile toolbar. Because opening the toolbar can clear a text selection, use this order: select text, copy it, then run **DSL: Search copied text**. If the selected text remains active it is used directly; otherwise the closest matching occurrence to the cursor is used.
+Register both **DSL: Find body candidates** and **DSL: Search copied text** in the mobile toolbar. **DSL: Find body candidates** ignores any selected text and never reads the clipboard. For an explicit copied-term search, select text, copy it, then run **DSL: Search copied text**. If the selection is no longer active after copying, the closest matching occurrence to the cursor is used. Repeating the same copied term in the same open note clears that clipboard result; run it again to search again.
 
 ### Test a prerelease with BRAT
 
 Use the same plugin ID for prerelease testing; do not install a separate Dev plugin. Disable the released DetailSearch Linker, then run **BRAT: Add a beta plugin for testing** and enter `zoupuyo-obsidian/obsidian-detailsearch-linker`. Enable the beta, test it, then remove it from BRAT's beta list and re-enable the released plugin. The released and beta versions must not be enabled at the same time.
 
-### Search a selection
+### Search a selection explicitly
 
 1. Open a note and select the phrase you want to link, such as `cognitive load`.
-2. Run **Find body link candidates in current note**, or click the ribbon while the selection is still active.
+2. Run **DSL: Search selection**. The primary command and ribbon ignore the selection and auto-extract instead.
 3. The plugin searches **other note bodies** for that phrase. It does not extract other terms from the note.
-4. Every occurrence of the phrase in the current note is highlighted (except inside links, code, math, or frontmatter).
+4. Only the selected occurrence is highlighted (except inside links, code, math, or frontmatter). Other occurrences are not selected by this command.
 5. Hover the highlight on desktop, or tap it on mobile. The preview lists destination notes, the nearest heading, and a short excerpt.
 6. Click **Create link** on the destination you want. The selected occurrence becomes a heading link.
 
@@ -80,29 +80,29 @@ Selection search always runs, even if the phrase is on the ignore list. Use this
 
 The selection must appear in the current note outside a protected span. A selection that sits inside an existing link or a code block is rejected before any other note is read.
 
-### Search without a selection (auto-extract)
+### Find body candidates (auto-extract)
 
-1. Open a note and click so there is **no** selected text.
-2. Run **Find body link candidates in current note**, or click the ribbon when nothing is highlighted yet.
-3. The plugin extracts candidate phrases from the current note (headings, bold, highlights, and, depending on settings, ordinary sentences).
+1. Open a note. Any remaining text selection is ignored, and the clipboard is never read.
+2. Run **DSL: Find body candidates**, or click the ribbon.
+3. The plugin uses its current heuristic extraction: headings, bold, highlights, and, depending on settings, ordinary sentences and n-grams.
 4. Each extracted phrase is searched in other note bodies.
 5. Only phrases that hit at least one other note are highlighted. Each highlight belongs to **that phrase only**.
 6. Open the preview on a highlight. You see destinations for that phrase, not a mix of every extracted term.
 7. Click **Create link** to replace that occurrence.
 
-Auto-extract does not open an input box. If you need to type a phrase that is not in the note, use the legacy selection command described below.
+Auto-extract does not open an input box and is not a full-recall scan of every possible phrase. If you need to search a phrase explicitly, use **DSL: Search selection** or **DSL: Search copied text**.
 
-### Ribbon versus command palette
+### Ribbon versus primary command
 
-| Situation | Ribbon search icon | **Find body link candidates in current note** |
+| Situation | Ribbon search icon | **DSL: Find body candidates** |
 |-----------|--------------------|-----------------------------------------------|
-| Text is selected | Search that selection | Search that selection |
-| Nothing selected, highlights are already on | **Clear** the highlights | Run auto-extract again |
-| Nothing selected, no highlights | Auto-extract | Auto-extract |
+| No highlights (selection can remain) | Auto-extract; selection is ignored | Auto-extract; selection is ignored |
+| Same open note already has highlights | **Clear** highlights first | **Clear** highlights first |
+| After that clear, next press | Auto-extract | Auto-extract |
 
-The ribbon is the faster “search or clear” control. **Find body link candidates in current note** is the faster “search again” control when highlights are already visible.
+The ribbon and **DSL: Find body candidates** do the same body-candidate search. On the same open note, an existing result set makes the first press clear the highlights; the next press starts auto-extraction again.
 
-Clear highlights at any time with **DSL: Clear highlights**, the status bar label, or a ribbon click when nothing is selected.
+Clear highlights at any time with **DSL: Clear highlights** or the status bar label. The primary command and ribbon also clear the existing result on their first press for the same open note.
 
 ### After the preview opens
 
@@ -125,15 +125,15 @@ These work even when the candidate-count badge is hidden. They have no default h
 
 ### Legacy commands
 
-**Search selection in other note bodies** is the older selection command. If nothing is selected, it opens a modal. The typed phrase must already exist in the current note.
+**DSL: Search selection** is the explicit selection command. Without a selection, it opens a modal. The typed phrase must already exist in the current note, and an explicit search highlights only the selected occurrence or the occurrence found for the typed phrase.
 
-**Find body link candidates from current note** always auto-extracts and never looks at the selection.
+**DSL: Auto-extract and search** is the diagnostic command. It force-runs auto-extraction, regardless of the remaining selection or current highlights.
 
-Keep them for diagnostics. Day-to-day use is **Find body link candidates in current note** plus the ribbon.
+Keep these commands for explicit searches and diagnostics. Day-to-day use is **DSL: Find body candidates** plus the ribbon.
 
 ### Mobile
 
-Add **Find body link candidates in current note** to Obsidian’s **Mobile toolbar**. The ribbon icon, when available, follows the table above. Tap a highlight to open the preview.
+Add **DSL: Find body candidates** to Obsidian’s **Mobile toolbar**. The ribbon icon, when available, follows the table above. Tap a highlight to open the preview.
 
 ## Ignore list and stop words
 
@@ -208,14 +208,14 @@ Use this when the current note is prose and you want links into other essays, no
 - Keep **Minimum term length** at 3.
 - Leave **Ignored terms** empty until a repeated false hit appears.
 
-Run **Find body link candidates in current note** with no selection. Open a highlight, read the excerpt, then create the link. If `の` or a two-character fragment appears, raise the minimum length or add that fragment to **Ignored terms**.
+Run **DSL: Find body candidates**. Open a highlight, read the excerpt, then create the link. If `の` or a two-character fragment appears, raise the minimum length or add that fragment to **Ignored terms**.
 
 ### Selection-first drafting
 
 Use this when you already know the phrase and do not want the plugin to guess.
 
 - You can leave auto-extract settings at the defaults.
-- Select the phrase, then run **Find body link candidates in current note** or click the ribbon.
+- Select the phrase, then run **DSL: Search selection**. The primary command and ribbon still auto-extract, even while the selection remains visible.
 - Keep **Case sensitive** off unless `API` and `api` must stay distinct.
 
 Auto-extract is then a fallback for notes you have not annotated yet. The ignore list will not block these explicit searches.

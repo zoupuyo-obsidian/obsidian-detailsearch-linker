@@ -25,8 +25,8 @@ export const REGISTERED_COMMAND_IDS = [
 /** Embedded in bundle for post-build grep verification. */
 export const BUILD_ARTIFACT_MARKERS = {
 	commandId: SEARCH_CURRENT_NOTE_COMMAND_ID,
-	jaLabel: 'DSL: 全体から検索',
-	enLabel: 'DSL: Search all',
+	jaLabel: 'DSL: 本文候補を検索',
+	enLabel: 'DSL: Find body candidates',
 } as const;
 
 export type CommandI18nKey =

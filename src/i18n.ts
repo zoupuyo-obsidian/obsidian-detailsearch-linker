@@ -3,9 +3,9 @@ import type { UiLanguage } from './settings';
 
 const messages = {
 	ja: {
-		ribbonTooltip: 'DSL: 全体から検索',
+		ribbonTooltip: 'DSL: 本文候補を検索',
 		ribbonTooltipClear: 'DSL: 強調を消す',
-		cmdSearchCurrentNote: 'DSL: 全体から検索',
+		cmdSearchCurrentNote: 'DSL: 本文候補を検索',
 		cmdSearchSelection: 'DSL: 選択語を検索',
 		cmdSearchAuto: 'DSL: 自動抽出して検索',
 		cmdSearchClipboard: 'DSL: コピー語を検索',
@@ -146,9 +146,9 @@ const messages = {
 		settingsCacheInfoDesc: '現在のキャッシュ使用量',
 	},
 	en: {
-		ribbonTooltip: 'DSL: Search all',
+		ribbonTooltip: 'DSL: Find body candidates',
 		ribbonTooltipClear: 'DSL: Clear highlights',
-		cmdSearchCurrentNote: 'DSL: Search all',
+		cmdSearchCurrentNote: 'DSL: Find body candidates',
 		cmdSearchSelection: 'DSL: Search selection',
 		cmdSearchAuto: 'DSL: Auto-extract and search',
 		cmdSearchClipboard: 'DSL: Search copied text',

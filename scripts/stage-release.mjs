@@ -45,7 +45,7 @@ export async function validateReleaseAssets(rootDir, tag) {
 		throw new Error(`Staged manifest version ${manifest.version} does not match tag ${tag}`);
 	}
 	const main = await readFile(path.join(assetDir, 'main.js'), 'utf8');
-	if (!main.includes('DSL: Search all') || !main.includes('DSL: Search copied text') || !main.includes('search-clipboard')) {
+	if (!main.includes('DSL: Find body candidates') || !main.includes('DSL: Search copied text') || !main.includes('search-clipboard')) {
 		throw new Error('main.js is missing the search or clipboard command marker');
 	}
 	const entries = await hashReleaseFiles(assetDir);

@@ -27,7 +27,7 @@ import {
 	type RibbonId,
 } from './core/commands/ribbonRegistry';
 import {
-	resolveRibbonAction,
+	shouldClearBodyCandidateSearch,
 	shouldClearRepeatedClipboardSearch,
 } from './core/commands/unifiedSearch';
 import { addIgnoredTerm } from './core/ignore/ignoredTerms';
@@ -406,7 +406,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private runRibbonAction(action: RibbonAction): void {
 		switch (action) {
 			case 'unified-search':
-				void this.onRibbonClick();
+				void this.searchCurrentNoteCommand();
 				break;
 			case 'clipboard-search':
 				void this.searchClipboardCommand();
@@ -612,71 +612,11 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			return;
 		}
 
-		const text = cm.state.doc.toString();
-		const range = cm.state.selection.main;
-		const sel = text.slice(range.from, range.to);
-		if (sel.trim()) {
-			await this.runSelectionFromEditor(file, cm, text, range.from, range.to);
-		} else {
-			await this.searchAutoCommand();
-		}
-	}
-
-	private onRibbonClick(): void {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		const file = view?.file;
-		const cm = editorView(view?.editor);
-		const lang = this.settings.uiLanguage;
-		if (!view || !cm || !file) {
-			new Notice(t(lang, 'noticeNoEditor'));
+		if (shouldClearBodyCandidateSearch(file.path, this.sessions.get())) {
+			this.clearSession(true);
 			return;
 		}
-
-		const text = cm.state.doc.toString();
-		const range = cm.state.selection.main;
-		const sel = text.slice(range.from, range.to);
-		const action = resolveRibbonAction(sel, this.hasActiveSession());
-		switch (action) {
-			case 'clear':
-				this.clearSession(true);
-				break;
-			case 'selection':
-				void this.runSelectionFromEditor(file, cm, text, range.from, range.to);
-				break;
-			case 'auto':
-				void this.searchAutoCommand();
-				break;
-		}
-	}
-
-	private async runSelectionFromEditor(
-		file: TFile,
-		cm: EditorView,
-		text: string,
-		selectionFrom: number,
-		selectionTo: number,
-	): Promise<void> {
-		const lang = this.settings.uiLanguage;
-		const sel = text.slice(selectionFrom, selectionTo);
-		const selError = validateQuery(sel);
-		if (selError) {
-			this.showQueryValidationNotice(lang, selError);
-			return;
-		}
-		const request = new SelectionQuerySource().resolve(
-			text,
-			selectionFrom,
-			selectionTo,
-			this.settings.caseSensitive,
-		);
-		if (!request) {
-			const trimmed = trimSelectionRange(text, selectionFrom, selectionTo);
-			if (trimmed && !validateQuery(trimmed.query)) {
-				new Notice(t(lang, 'noticeSelectionProtected'));
-			}
-			return;
-		}
-		await this.runSelectionSearch(file, cm, text, request);
+		await this.searchAutoCommand();
 	}
 
 	private async searchSelectionCommand(): Promise<void> {
@@ -1692,15 +1632,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		}
 		const lang = this.settings.uiLanguage;
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		const cm = editorView(view?.editor);
-		let hasSelection = false;
-		if (cm) {
-			const range = cm.state.selection.main;
-			const text = cm.state.doc.toString();
-			hasSelection = text.slice(range.from, range.to).trim().length > 0;
-		}
 		const label =
-			!hasSelection && this.hasActiveSession()
+			shouldClearBodyCandidateSearch(view?.file?.path, this.sessions.get())
 				? t(lang, 'ribbonTooltipClear')
 				: t(lang, 'ribbonTooltip');
 		unifiedRibbon.setAttr('aria-label', label);

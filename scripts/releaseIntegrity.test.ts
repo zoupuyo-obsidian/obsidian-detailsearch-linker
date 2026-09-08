@@ -44,7 +44,7 @@ test('stageRelease creates beta assets without changing source versions', async 
 	await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '1.0.5' }));
 	await writeFile(path.join(root, 'manifest.json'), JSON.stringify(manifest));
 	await writeFile(path.join(root, 'versions.json'), JSON.stringify({ '1.0.5': '1.13.0' }));
-	await writeFile(path.join(root, 'main.js'), 'DSL: Search all DSL: Search copied text search-clipboard');
+	await writeFile(path.join(root, 'main.js'), 'DSL: Find body candidates DSL: Search copied text search-clipboard');
 	await writeFile(path.join(root, 'styles.css'), '.dsl {}');
 
 	const result = await stageRelease(root, '1.0.6-beta.1');

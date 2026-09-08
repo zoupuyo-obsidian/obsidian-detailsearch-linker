@@ -48,9 +48,9 @@ function verifyProductionBundle() {
 		'search-current-note',
 		'open-candidates-at-cursor',
 		'cmdSearchCurrentNote',
-		'DSL: Search all',
+		'DSL: Find body candidates',
 		// minified i18n uses \\u escapes for the Japanese command label
-		'\\u5168\\u4F53\\u304B\\u3089\\u691C\\u7D22',
+		'\\u672C\\u6587\\u5019\\u88DC\\u3092\\u691C\\u7D22',
 	];
 	for (const needle of required) {
 		if (!bundle.includes(needle)) {

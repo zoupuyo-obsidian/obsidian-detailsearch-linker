@@ -1,7 +1,3 @@
-export type UnifiedSearchBranch = 'selection' | 'auto';
-
-export type RibbonAction = 'selection' | 'auto' | 'clear';
-
 export interface ClipboardToggleSession {
 	filePath: string;
 	mode: 'selection' | 'auto';
@@ -9,30 +5,12 @@ export interface ClipboardToggleSession {
 	anchors: readonly unknown[];
 }
 
-export function hasNonEmptySelection(selectionText: string): boolean {
-	return selectionText.trim().length > 0;
-}
-
-/** Unified command: non-empty trimmed selection → selection search, else auto extract. */
-export function resolveUnifiedCommandBranch(selectionText: string): UnifiedSearchBranch {
-	return hasNonEmptySelection(selectionText) ? 'selection' : 'auto';
-}
-
-/**
- * Ribbon: selection → search (even if highlights exist); no selection + highlights → clear;
- * no selection + no highlights → auto extract.
- */
-export function resolveRibbonAction(
-	selectionText: string,
-	hasActiveSession: boolean,
-): RibbonAction {
-	if (hasNonEmptySelection(selectionText)) {
-		return 'selection';
-	}
-	if (hasActiveSession) {
-		return 'clear';
-	}
-	return 'auto';
+/** Body-candidate search ignores selection; visible results on this note toggle off. */
+export function shouldClearBodyCandidateSearch(
+	filePath: string | undefined,
+	session: Pick<ClipboardToggleSession, 'filePath' | 'anchors'>,
+): boolean {
+	return !!filePath && session.filePath === filePath && session.anchors.length > 0;
 }
 
 /**
