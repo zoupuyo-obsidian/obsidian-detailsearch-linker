@@ -26,7 +26,10 @@ import {
 	type RibbonAction,
 	type RibbonId,
 } from './core/commands/ribbonRegistry';
-import { resolveRibbonAction } from './core/commands/unifiedSearch';
+import {
+	resolveRibbonAction,
+	shouldClearRepeatedClipboardSearch,
+} from './core/commands/unifiedSearch';
 import { addIgnoredTerm } from './core/ignore/ignoredTerms';
 import { removeGroupFromSession, resolveIgnoreGroupKey } from './core/ignore/sessionIgnore';
 import {
@@ -778,6 +781,17 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		const error = validateQuery(query);
 		if (error) {
 			this.showQueryValidationNotice(lang, error);
+			return;
+		}
+		const queryKey = groupKeyForQuery(query, this.settings.caseSensitive);
+		if (
+			shouldClearRepeatedClipboardSearch(
+				queryKey,
+				file.path,
+				this.sessions.get(),
+			)
+		) {
+			this.clearSession(true);
 			return;
 		}
 

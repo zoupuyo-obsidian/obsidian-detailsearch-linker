@@ -4,6 +4,7 @@ import {
 	hasNonEmptySelection,
 	resolveRibbonAction,
 	resolveUnifiedCommandBranch,
+	shouldClearRepeatedClipboardSearch,
 } from './unifiedSearch.ts';
 
 test('resolveUnifiedCommandBranch uses selection when trimmed non-empty', () => {
@@ -37,4 +38,37 @@ test('hasNonEmptySelection respects trim', () => {
 	assert.equal(hasNonEmptySelection('  a '), true);
 	assert.equal(hasNonEmptySelection(''), false);
 	assert.equal(hasNonEmptySelection('\t'), false);
+});
+
+test('repeated copied-text search clears its own one-term selection session', () => {
+	assert.equal(
+		shouldClearRepeatedClipboardSearch('term', 'source.md', {
+			filePath: 'source.md',
+			mode: 'selection',
+			groups: [{ key: 'term' }],
+			anchors: [{}],
+		}),
+		true,
+	);
+});
+
+test('copied-text search does not clear a different or multi-term session', () => {
+	assert.equal(
+		shouldClearRepeatedClipboardSearch('term', 'source.md', {
+			filePath: 'source.md',
+			mode: 'selection',
+			groups: [{ key: 'other' }],
+			anchors: [{}],
+		}),
+		false,
+	);
+	assert.equal(
+		shouldClearRepeatedClipboardSearch('term', 'source.md', {
+			filePath: 'source.md',
+			mode: 'auto',
+			groups: [{ key: 'term' }],
+			anchors: [{}],
+		}),
+		false,
+	);
 });
