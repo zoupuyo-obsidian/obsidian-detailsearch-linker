@@ -1,4 +1,4 @@
-# Fail if HEAD (or --all) contains Cursor Co-authored-by. Run before every push.
+# Fail if HEAD (or --all) contains AI or agent attribution. Run before every push.
 param(
 	[string]$Repo = (Split-Path -Parent $PSScriptRoot),
 	[switch]$All
@@ -12,7 +12,8 @@ $sha = ($sha | Out-String).Trim()
 if ($sha -notmatch '^[0-9a-f]{40}$') { throw "invalid HEAD: $sha" }
 
 $range = if ($All) { "--all" } else { "-1" }
-$bad = & $git -C $Repo log $range --format="%B" | Select-String "Co-authored-by: Cursor|cursoragent"
-if ($bad) { throw "STOP: Co-authored-by: Cursor / cursoragent found. Recreate the commit with scripts/commit-clean.ps1" }
+$forbiddenAttribution = '(?im)^(?:co-authored-by|authored-by|assisted-by):.*\b(?:cursor|cursoragent|gpt|chatgpt|openai|codex)\b|^(?:cursor|cursoragent|gpt|chatgpt|openai|codex)\b'
+$bad = & $git -C $Repo log $range --format="%an <%ae>%n%B" | Select-String $forbiddenAttribution
+if ($bad) { throw "STOP: AI or agent attribution found. Recreate the commit with scripts/commit-clean.ps1" }
 
 Write-Host "push-gate ok HEAD=$sha"

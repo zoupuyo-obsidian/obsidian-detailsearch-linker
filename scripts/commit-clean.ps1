@@ -1,4 +1,4 @@
-# Create a git commit without Cursor Co-authored-by trailers.
+# Create a git commit without AI or agent attribution in author fields or trailers.
 param(
 	[Parameter(Mandatory = $true)]
 	[string]$Repo,
@@ -57,8 +57,9 @@ if ($new -notmatch '^[0-9a-f]{40}$') {
 
 & $git reset --hard $new
 
-$hit = & $git log -1 --format="%B" | Select-String "Co-authored-by: Cursor|cursoragent"
-if ($hit) { throw "Co-authored-by still present in commit message" }
+$forbiddenAttribution = '(?im)^(?:co-authored-by|authored-by|assisted-by):.*\b(?:cursor|cursoragent|gpt|chatgpt|openai|codex)\b|^(?:cursor|cursoragent|gpt|chatgpt|openai|codex)\b'
+$hit = & $git log -1 --format="%an <%ae>%n%B" | Select-String $forbiddenAttribution
+if ($hit) { throw "AI or agent attribution is present in the commit author or message" }
 
 Write-Host "Created commit $new"
 & $git log -1 --oneline
