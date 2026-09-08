@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
 	buildAnchorSpots,
+	ClipboardQuerySource,
 	ModalQuerySource,
 	modalQueryMissingInNote,
 	SelectionQuerySource,
@@ -76,6 +77,36 @@ test('modal source finds first safe anchor when term appears multiple times', ()
 	assert.ok(req);
 	assert.equal(req!.anchorFrom, 0);
 	assert.equal(req!.canLink, true);
+});
+
+test('clipboard source preserves the matching active selection', () => {
+	const text = 'alpha one alpha two';
+	const second = text.lastIndexOf('alpha');
+	const request = new ClipboardQuerySource('alpha').resolve(
+		text,
+		second,
+		second + 'alpha'.length,
+		false,
+	);
+	assert.equal(request?.anchorFrom, second);
+});
+
+test('clipboard source chooses the occurrence nearest the collapsed cursor', () => {
+	const text = 'alpha one alpha two alpha';
+	const second = text.indexOf('alpha', 1);
+	const request = new ClipboardQuerySource('alpha').resolve(
+		text,
+		second + 2,
+		second + 2,
+		false,
+	);
+	assert.equal(request?.anchorFrom, second);
+});
+
+test('clipboard source ignores protected occurrences when choosing an anchor', () => {
+	const text = '[alpha](target) alpha';
+	const request = new ClipboardQuerySource('alpha').resolve(text, 1, 1, false);
+	assert.equal(request?.anchorFrom, text.lastIndexOf('alpha'));
 });
 
 test('buildAnchorSpots uses trimmed selection range', () => {

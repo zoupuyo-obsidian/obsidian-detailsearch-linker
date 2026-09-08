@@ -71,6 +71,77 @@ export class ModalQuerySource implements QuerySource {
 	}
 }
 
+/**
+ * Uses copied text while preserving the user's intended source occurrence.
+ * On mobile, copying a selection can collapse that selection before a ribbon
+ * command runs, so the current cursor is used as the fallback anchor hint.
+ */
+export class ClipboardQuerySource implements QuerySource {
+	constructor(private readonly query: string) {}
+
+	readonly kind = 'selection' as const;
+
+	resolve(
+		text: string,
+		selectionFrom: number,
+		selectionTo: number,
+		caseSensitive: boolean,
+	): SearchRequest | null {
+		const query = this.query.trim();
+		if (!query || validateQuery(this.query)) {
+			return null;
+		}
+
+		const protectedSpans = findProtectedSpans(text);
+		const selected = trimSelectionRange(text, selectionFrom, selectionTo);
+		if (
+			selected?.query === query &&
+			!covers(protectedSpans, selected.from, selected.to)
+		) {
+			return {
+				query,
+				displayText: selected.displayText,
+				source: 'selection',
+				anchorFrom: selected.from,
+				anchorTo: selected.to,
+				caseSensitive,
+				canLink: true,
+			};
+		}
+
+		const occurrences = findTermOccurrences(text, query, caseSensitive, protectedSpans);
+		if (occurrences.length === 0) {
+			return null;
+		}
+
+		const cursor = selectionTo;
+		const nearest = occurrences.reduce((best, occurrence) => {
+			const distance = distanceToRange(cursor, occurrence.from, occurrence.to);
+			const bestDistance = distanceToRange(cursor, best.from, best.to);
+			return distance < bestDistance ? occurrence : best;
+		});
+		return {
+			query,
+			displayText: nearest.text,
+			source: 'selection',
+			anchorFrom: nearest.from,
+			anchorTo: nearest.to,
+			caseSensitive,
+			canLink: true,
+		};
+	}
+}
+
+function distanceToRange(position: number, from: number, to: number): number {
+	if (position < from) {
+		return from - position;
+	}
+	if (position > to) {
+		return position - to;
+	}
+	return 0;
+}
+
 export function buildAnchorSpots(
 	text: string,
 	request: SearchRequest,

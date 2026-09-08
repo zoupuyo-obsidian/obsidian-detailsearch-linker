@@ -4,6 +4,8 @@
 .idea
 
 node_modules
+.test-dist
+.pnpm-store
 
 main.js
 *.map

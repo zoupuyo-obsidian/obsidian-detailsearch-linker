@@ -21,6 +21,11 @@ import {
 	BUILD_ARTIFACT_MARKERS,
 	COMMAND_DEFINITIONS,
 } from './core/commands/commandRegistry';
+import {
+	RIBBON_DEFINITIONS,
+	type RibbonAction,
+	type RibbonId,
+} from './core/commands/ribbonRegistry';
 import { resolveRibbonAction } from './core/commands/unifiedSearch';
 import { addIgnoredTerm } from './core/ignore/ignoredTerms';
 import { removeGroupFromSession, resolveIgnoreGroupKey } from './core/ignore/sessionIgnore';
@@ -35,7 +40,12 @@ import {
 	sourceMatchesLiveSession,
 	targetMtimeMatches,
 } from './core/link/linkCreation';
-import { buildAnchorSpots, ModalQuerySource, SelectionQuerySource } from './core/query/selectionSource';
+import {
+	buildAnchorSpots,
+	ClipboardQuerySource,
+	ModalQuerySource,
+	SelectionQuerySource,
+} from './core/query/selectionSource';
 import type { SearchRequest } from './core/query/querySource';
 import { validateQuery, MAX_QUERY_LENGTH, trimSelectionRange, type QueryValidationError } from './core/query/queryValidation';
 import { MultiSearchCoordinator } from './core/search/multiSearchCoordinator';
@@ -124,7 +134,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private readonly cache: QueryCache;
 	private readonly workset = new WorksetTracker(50);
 	private statusEl: HTMLElement | null = null;
-	private ribbonEl: HTMLElement | null = null;
+	private readonly ribbonItems = new Map<RibbonId, HTMLElement>();
 	private readonly hover = new DetailHoverController();
 	private hoverAttachedTo: HTMLElement | null = null;
 	private previewNavigation: PreviewNavigationState | null = null;
@@ -209,13 +219,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.statusEl.addClass('detailsearch-linker-status');
 		this.statusEl.hide();
 
-		this.ribbonEl = this.addRibbonIcon(
-			'search',
-			t(this.settings.uiLanguage, 'ribbonTooltip'),
-			() => {
-				void this.onRibbonClick();
-			},
-		);
+		this.registerRibbonItems();
 		this.statusEl.addClass('mod-clickable');
 		this.statusEl.addEventListener('click', () => {
 			if (this.hasActiveSession()) {
@@ -384,6 +388,29 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		}
 	}
 
+
+	private registerRibbonItems(): void {
+		for (const definition of RIBBON_DEFINITIONS) {
+			const element = this.addRibbonIcon(
+				definition.icon,
+				t(this.settings.uiLanguage, definition.i18nKey),
+				() => this.runRibbonAction(definition.action),
+			);
+			this.ribbonItems.set(definition.id, element);
+		}
+	}
+
+	private runRibbonAction(action: RibbonAction): void {
+		switch (action) {
+			case 'unified-search':
+				void this.onRibbonClick();
+				break;
+			case 'clipboard-search':
+				void this.searchClipboardCommand();
+				break;
+		}
+	}
+
 	private runCommand(id: string): void {
 		switch (id) {
 			case 'search-current-note':
@@ -394,6 +421,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				break;
 			case 'search-auto':
 				void this.searchAutoCommand();
+				break;
+			case 'search-clipboard':
+				void this.searchClipboardCommand();
 				break;
 			case 'cancel-search':
 				this.cancelSearch();
@@ -726,6 +756,44 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 
 		new Notice(tf(lang, 'noticeAutoExtracting', extracted.length));
 		await this.runAutoSearch(file, cm, text, extracted);
+	}
+
+	private async searchClipboardCommand(): Promise<void> {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const file = view?.file;
+		const cm = editorView(view?.editor);
+		const lang = this.settings.uiLanguage;
+		if (!view || !cm || !file) {
+			new Notice(t(lang, 'noticeNoEditor'));
+			return;
+		}
+
+		let query: string;
+		try {
+			query = (await navigator.clipboard.readText()).trim();
+		} catch {
+			new Notice(t(lang, 'noticeClipboardUnavailable'));
+			return;
+		}
+		const error = validateQuery(query);
+		if (error) {
+			this.showQueryValidationNotice(lang, error);
+			return;
+		}
+
+		const text = cm.state.doc.toString();
+		const range = cm.state.selection.main;
+		const request = new ClipboardQuerySource(query).resolve(
+			text,
+			range.from,
+			range.to,
+			this.settings.caseSensitive,
+		);
+		if (!request) {
+			new Notice(t(lang, 'noticeModalTermNotInNote'));
+			return;
+		}
+		await this.runSelectionSearch(file, cm, text, request);
 	}
 
 	private showQueryValidationNotice(lang: import('./settings').UiLanguage, error: QueryValidationError): void {
@@ -1604,7 +1672,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	}
 
 	private refreshRibbonTooltip(): void {
-		if (!this.ribbonEl) {
+		const unifiedRibbon = this.ribbonItems.get('unified-search');
+		if (!unifiedRibbon) {
 			return;
 		}
 		const lang = this.settings.uiLanguage;
@@ -1620,6 +1689,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			!hasSelection && this.hasActiveSession()
 				? t(lang, 'ribbonTooltipClear')
 				: t(lang, 'ribbonTooltip');
-		this.ribbonEl.setAttr('aria-label', label);
+		unifiedRibbon.setAttr('aria-label', label);
+		this.ribbonItems
+			.get('clipboard-search')
+			?.setAttr('aria-label', t(lang, 'cmdSearchClipboard'));
 	}
 }

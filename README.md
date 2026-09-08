@@ -57,7 +57,15 @@ After DetailSearch Linker is accepted into the Obsidian community directory:
 
 ## Basic operations
 
-The command you will use most is **DetailSearch Linker: Find body link candidates in current note**. The ribbon search icon runs the same family of actions, with one extra rule for clearing highlights.
+The command you will use most is **DSL: Search all**. The ribbon search icon runs the same family of actions, with one extra rule for clearing highlights. `DSL` is the short label for DetailSearch Linker.
+
+### Search copied text on iPhone
+
+Register both **DSL: Search all** and **DSL: Search copied text** in the mobile toolbar. Because opening the toolbar can clear a text selection, use this order: select text, copy it, then run **DSL: Search copied text**. If the selected text remains active it is used directly; otherwise the closest matching occurrence to the cursor is used.
+
+### Test a prerelease with BRAT
+
+Use the same plugin ID for prerelease testing; do not install a separate Dev plugin. Disable the released DetailSearch Linker, then run **BRAT: Add a beta plugin for testing** and enter `zoupuyo-obsidian/obsidian-detailsearch-linker`. Enable the beta, test it, then remove it from BRAT's beta list and re-enable the released plugin. The released and beta versions must not be enabled at the same time.
 
 ### Search a selection
 
@@ -94,7 +102,7 @@ Auto-extract does not open an input box. If you need to type a phrase that is no
 
 The ribbon is the faster “search or clear” control. **Find body link candidates in current note** is the faster “search again” control when highlights are already visible.
 
-Clear highlights at any time with **DetailSearch Linker: Clear highlights**, the status bar label, or a ribbon click when nothing is selected.
+Clear highlights at any time with **DSL: Clear highlights**, the status bar label, or a ribbon click when nothing is selected.
 
 ### After the preview opens
 

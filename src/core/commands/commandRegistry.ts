@@ -1,7 +1,7 @@
 /** Primary unified command — must appear in built main.js (see buildArtifact.test.ts). */
 export const SEARCH_CURRENT_NOTE_COMMAND_ID = 'search-current-note';
 
-export const LEGACY_COMMAND_IDS = ['search-selection', 'search-auto'] as const;
+export const LEGACY_COMMAND_IDS = ['search-selection', 'search-auto', 'search-clipboard'] as const;
 
 export const ACCESSIBILITY_COMMAND_IDS = [
 	'open-candidates-at-cursor',
@@ -25,14 +25,15 @@ export const REGISTERED_COMMAND_IDS = [
 /** Embedded in bundle for post-build grep verification. */
 export const BUILD_ARTIFACT_MARKERS = {
 	commandId: SEARCH_CURRENT_NOTE_COMMAND_ID,
-	jaLabel: '現在ノートの本文リンク候補を探す',
-	enLabel: 'Find body link candidates in current note',
+	jaLabel: 'DSL: 全体から検索',
+	enLabel: 'DSL: Search all',
 } as const;
 
 export type CommandI18nKey =
 	| 'cmdSearchCurrentNote'
 	| 'cmdSearchSelection'
 	| 'cmdSearchAuto'
+	| 'cmdSearchClipboard'
 	| 'cmdOpenCandidatesAtCursor'
 	| 'cmdGoToNextHighlight'
 	| 'cmdGoToPreviousHighlight'
@@ -56,6 +57,7 @@ export const COMMAND_DEFINITIONS: readonly CommandDefinition[] = [
 	},
 	{ id: 'search-selection', i18nKey: 'cmdSearchSelection', primary: false },
 	{ id: 'search-auto', i18nKey: 'cmdSearchAuto', primary: false },
+	{ id: 'search-clipboard', i18nKey: 'cmdSearchClipboard', primary: false },
 	{
 		id: 'open-candidates-at-cursor',
 		i18nKey: 'cmdOpenCandidatesAtCursor',
