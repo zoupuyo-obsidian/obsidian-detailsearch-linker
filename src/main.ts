@@ -158,6 +158,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private activeSearchEditor: EditorView | null = null;
 	private activeSearchFilePath = '';
 	private searchRunId = 0;
+	private highlightDiagnosticTimer: number | null = null;
 	private readonly saveCoordinator: SaveCoordinator;
 	private lastSaveErrorNoticeAt = 0;
 	private readonly localizedCommands: {
@@ -1093,6 +1094,10 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				caseSensitive: this.settings.caseSensitive,
 			}));
 			this.applySessionToEditors();
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (activeView?.file?.path === file.path && editorView(activeView.editor) === cm) {
+				this.scheduleHighlightRenderDiagnostic(activeView, cm);
+			}
 			this.attachHoverToActive();
 			this.refreshStatus();
 
@@ -1299,6 +1304,34 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			});
 		});
 		this.syncPaintTokenOnEditors();
+	}
+
+	/** Reports only when a successfully prepared mobile session has no DOM marks. */
+	private scheduleHighlightRenderDiagnostic(view: MarkdownView, cm: EditorView): void {
+		if (this.highlightDiagnosticTimer !== null) {
+			window.clearTimeout(this.highlightDiagnosticTimer);
+		}
+		this.highlightDiagnosticTimer = window.setTimeout(() => {
+			this.highlightDiagnosticTimer = null;
+			const session = readDetailSession(cm.state);
+			const requested = session?.anchors.length ?? 0;
+			if (requested === 0 || session?.filePath !== view.file?.path) {
+				return;
+			}
+			const rendered = cm.dom.querySelectorAll('.cm-detailsearch-linker-mark').length;
+			if (rendered > 0) {
+				return;
+			}
+			new Notice(
+				tf(
+					this.settings.uiLanguage,
+					'noticeHighlightRenderMissing',
+					requested,
+					view.getMode(),
+					cm.dom.getClientRects().length > 0 ? 'visible' : 'hidden',
+				),
+			);
+		}, 250);
 	}
 
 	private attachHoverToActive(): void {

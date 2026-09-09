@@ -27,6 +27,8 @@ const messages = {
 		noticeAutoExtracting: (n: number) => `候補語 ${n} 件を抽出しました。本文を検索中…`,
 		noticeAutoSearchDone: (linked: number, extracted: number, cache: string) =>
 			`リンク候補あり ${linked} / ${extracted} 語（${cache}）`,
+		noticeHighlightRenderMissing: (requested: number, mode: string, editor: string) =>
+			`DSL表示診断：強調 ${requested} 件を準備しましたが、画面には描画されませんでした（モード: ${mode}、編集画面: ${editor}）。`,
 		noticeAutoNoTerms: '抽出できる候補語がありませんでした',
 		noticeAutoNoHits: '他ノート本文に一致する候補語はありませんでした',
 		noticeCacheWarm: 'キャッシュ利用',
@@ -170,6 +172,8 @@ const messages = {
 		noticeAutoExtracting: (n: number) => `Extracted ${n} candidate term(s). Searching bodies…`,
 		noticeAutoSearchDone: (linked: number, extracted: number, cache: string) =>
 			`${linked} / ${extracted} term(s) with link candidates (${cache})`,
+		noticeHighlightRenderMissing: (requested: number, mode: string, editor: string) =>
+			`DSL display diagnostic: ${requested} highlights were prepared, but none rendered (mode: ${mode}; editor: ${editor}).`,
 		noticeAutoNoTerms: 'No candidate terms could be extracted',
 		noticeAutoNoHits: 'No extracted terms matched other note bodies',
 		noticeCacheWarm: 'cache hit',
