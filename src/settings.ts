@@ -342,20 +342,30 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 			name: this.L(nameKey),
 			desc: this.L(descKey),
 			render: (setting) => {
+				let inputEl: HTMLTextAreaElement | null = null;
+				const saveTerms = async (value: string): Promise<void> => {
+					this.plugin.settings[field] = parseDictionaryTermsText(value);
+					this.plugin.onCandidateExtractionSettingsChanged();
+					await this.plugin.saveSettings();
+				};
 				setting
 					.setName(this.L(nameKey))
 					.setDesc(this.L(descKey))
 					.addTextArea((area) => {
+						inputEl = area.inputEl;
 						area
 							.setValue(this.plugin.settings[field].join('\n'))
-							.onChange(async (value) => {
-								this.plugin.settings[field] = parseDictionaryTermsText(value);
-								this.plugin.onCandidateExtractionSettingsChanged();
-								await this.plugin.saveSettings();
-							});
+							.onChange(saveTerms);
 						area.inputEl.rows = 4;
 						area.inputEl.addClass('detailsearch-linker-textarea');
-					});
+					})
+					.addButton((button) =>
+						button.setButtonText(this.L('saveDictionaryTerms')).onClick(() => {
+							if (inputEl) {
+								void saveTerms(inputEl.value);
+							}
+						}),
+					);
 			},
 		};
 	}
