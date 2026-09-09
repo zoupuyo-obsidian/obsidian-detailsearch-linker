@@ -350,6 +350,7 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 							.setValue(this.plugin.settings[field].join('\n'))
 							.onChange(async (value) => {
 								this.plugin.settings[field] = parseDictionaryTermsText(value);
+								this.plugin.onCandidateExtractionSettingsChanged();
 								await this.plugin.saveSettings();
 							});
 						area.inputEl.rows = 4;
@@ -372,6 +373,7 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 							.setValue(this.plugin.settings.learnedDictionaryTerms.join('\n'))
 							.onChange(async (value) => {
 								this.plugin.settings.learnedDictionaryTerms = parseDictionaryTermsText(value);
+								this.plugin.onCandidateExtractionSettingsChanged();
 								await this.plugin.saveSettings();
 							});
 						area.inputEl.rows = 4;
@@ -380,6 +382,7 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 					.addButton((button) =>
 						button.setButtonText(this.L('clearLearnedDictionaryTerms')).onClick(() => {
 							this.plugin.settings.learnedDictionaryTerms = [];
+							this.plugin.onCandidateExtractionSettingsChanged();
 							void this.plugin.saveSettings();
 							this.update();
 						}),

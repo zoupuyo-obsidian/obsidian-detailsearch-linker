@@ -139,6 +139,15 @@ test('body search switches preview mode to a visible source editor before scanni
 	assert.equal(h.events[0]?.kind, 'auto');
 });
 
+test('copy search switches preview mode to a visible source editor before painting', async () => {
+	const h = harness({ anchor: 2, head: 7 });
+	h.setMode('preview');
+	h.commands.get('search-clipboard')!(); await setImmediate();
+	assert.equal(h.mode(), 'source');
+	assert.equal(h.events[0]?.kind, 'selection');
+	assert.deepEqual(h.events[0]?.queries, ['alpha']);
+});
+
 test('body search with no active editor reports it without clipboard access or scanning', async () => {
 	const h = harness({ anchor: 0 });
 	h.setActiveView(null);

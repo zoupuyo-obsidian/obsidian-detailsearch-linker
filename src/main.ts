@@ -357,6 +357,17 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.scheduleCacheSave();
 	}
 
+	/**
+	 * Candidate extraction settings affect which terms can be painted. Keep an
+	 * existing session from masquerading as the result of newly edited rules;
+	 * the next explicit body-candidate command then starts a fresh search.
+	 */
+	onCandidateExtractionSettingsChanged(): void {
+		if (this.hasActiveSession()) {
+			this.clearSession(false);
+		}
+	}
+
 	formatCacheSizeDescription(): string {
 		const kb = Math.round(this.cache.estimateBytes() / 1024);
 		return tf(this.settings.uiLanguage, 'noticeCacheSize', this.cache.entryCount(), kb);
@@ -758,15 +769,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	}
 
 	private async searchClipboardCommand(): Promise<void> {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		const file = view?.file;
-		const cm = editorView(view?.editor);
 		const lang = this.settings.uiLanguage;
-		if (!view || !cm || !file) {
-			new Notice(t(lang, 'noticeNoEditor'));
-			return;
-		}
-
 		let query: string;
 		try {
 			query = (await navigator.clipboard.readText()).trim();
@@ -779,6 +782,15 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			this.showQueryValidationNotice(lang, error);
 			return;
 		}
+		// Read the clipboard before awaiting a view transition: iOS may require
+		// that read to remain directly tied to the command gesture. Then use the
+		// visible source editor so the resulting anchor can be painted onscreen.
+		const ready = await this.ensureSourceEditor();
+		if (!ready) {
+			new Notice(t(lang, 'noticeNoEditor'));
+			return;
+		}
+		const { file, cm } = ready;
 		const queryKey = groupKeyForQuery(query, this.settings.caseSensitive);
 		if (
 			shouldClearRepeatedClipboardSearch(
