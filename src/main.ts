@@ -688,14 +688,13 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	}
 
 	private async searchAutoCommand(): Promise<void> {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		const file = view?.file;
-		const cm = editorView(view?.editor);
+		const ready = await this.ensureSourceEditor();
 		const lang = this.settings.uiLanguage;
-		if (!view || !cm || !file) {
+		if (!ready) {
 			new Notice(t(lang, 'noticeNoEditor'));
 			return;
 		}
+		const { file, cm } = ready;
 
 		const text = cm.state.doc.toString();
 		const extracted = extractQueryCandidates(text, this.extractSettings());
@@ -706,6 +705,48 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 
 		new Notice(tf(lang, 'noticeAutoExtracting', extracted.length));
 		await this.runAutoSearch(file, cm, text, extracted);
+	}
+
+	/**
+	 * Highlights are CodeMirror decorations. On mobile, a preview-mode editor is
+	 * retained for searching but hidden behind the rendered preview. Switch the
+	 * active markdown leaf to its visible source/live-preview editor first.
+	 */
+	private async ensureSourceEditor(): Promise<{
+		file: TFile;
+		cm: EditorView;
+	} | null> {
+		let view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		let file = view?.file;
+		let cm = editorView(view?.editor);
+		if (!view || !file || !cm) {
+			return null;
+		}
+		if (view.getMode() !== 'preview') {
+			return { file, cm };
+		}
+
+		const leaf = this.app.workspace
+			.getLeavesOfType('markdown')
+			.find((candidate) => candidate.view === view);
+		if (!leaf) {
+			return null;
+		}
+		const state = leaf.getViewState();
+		await leaf.setViewState({
+			...state,
+			type: 'markdown',
+			active: true,
+			state: { ...state.state, file: file.path, mode: 'source' },
+		});
+
+		view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		file = view?.file;
+		cm = editorView(view?.editor);
+		if (!view || !file || !cm || view.getMode() === 'preview') {
+			return null;
+		}
+		return { file, cm };
 	}
 
 	private async searchClipboardCommand(): Promise<void> {

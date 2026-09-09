@@ -19,7 +19,12 @@ const requireDependency = createRequire(import.meta.url);
 function harness(selection: { anchor: number; head?: number }) {
 	const text = '**alpha** and **beta**';
 	const cm = { state: EditorState.create({ doc: text, selection }) };
-	let activeView: unknown = { file: { path: 'source.md' }, editor: { cm } };
+	let activeView: unknown = {
+		file: { path: 'source.md' },
+		editor: { cm },
+		getMode: () => mode,
+	};
+	let mode: 'source' | 'preview' = 'source';
 	let copiedText = 'alpha';
 	let clipboardReads = 0;
 	const notices: string[] = [];
@@ -37,7 +42,19 @@ function harness(selection: { anchor: number; head?: number }) {
 	});
 	const plugin = Object.create(module.exports.default.prototype);
 	plugin.settings = { ...DEFAULT_SETTINGS, uiLanguage: 'ja' };
-	plugin.app = { workspace: { getActiveViewOfType: () => activeView } };
+	const activeLeaf = {
+		get view() { return activeView; },
+		getViewState: () => ({ type: 'markdown', state: { file: 'source.md', mode } }),
+		setViewState: async (next: { state?: { mode?: 'source' | 'preview' } }) => {
+			mode = next.state?.mode ?? 'source';
+		},
+	};
+	plugin.app = {
+		workspace: {
+			getActiveViewOfType: () => activeView,
+			getLeavesOfType: () => [activeLeaf],
+		},
+	};
 	plugin.sessions = new SessionController();
 	plugin.localizedCommands = [];
 	plugin.ribbonItems = new Map();
@@ -65,6 +82,8 @@ function harness(selection: { anchor: number; head?: number }) {
 		clipboardReads: () => clipboardReads,
 		setClipboard: (text: string) => { copiedText = text; },
 		setActiveView: (view: unknown) => { activeView = view; },
+		setMode: (next: 'source' | 'preview') => { mode = next; },
+		mode: () => mode,
 	};
 }
 
@@ -109,6 +128,14 @@ test('body search does not clear highlights retained for another note', async ()
 	const h = harness({ anchor: 2, head: 7 });
 	h.plugin.sessions.replace({ ...h.plugin.sessions.get(), filePath: 'other.md', anchors: [{}] });
 	h.ribbons.get('search')!(); await setImmediate();
+	assert.equal(h.events[0]?.kind, 'auto');
+});
+
+test('body search switches preview mode to a visible source editor before scanning', async () => {
+	const h = harness({ anchor: 2, head: 7 });
+	h.setMode('preview');
+	h.commands.get('search-current-note')!(); await setImmediate();
+	assert.equal(h.mode(), 'source');
 	assert.equal(h.events[0]?.kind, 'auto');
 });
 
