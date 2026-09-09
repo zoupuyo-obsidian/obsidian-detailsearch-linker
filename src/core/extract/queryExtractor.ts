@@ -388,7 +388,10 @@ function mergeCandidates(raw: ExtractedCandidate[], settings: ExtractSettings): 
 		if (!key || ignored.has(key) || (stop.has(key) && item.dictionaryOrigin !== 'manual')) {
 			continue;
 		}
-		if (key.length < settings.minTermLength || key.length > settings.maxTermLength) {
+		if (
+			item.dictionaryOrigin !== 'manual'
+			&& (key.length < settings.minTermLength || key.length > settings.maxTermLength)
+		) {
 			if (item.source !== 'ngram' || key.length > settings.ngramMaxLength) {
 				if (
 					item.source === 'prose' ||

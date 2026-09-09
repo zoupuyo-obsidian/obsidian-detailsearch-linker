@@ -252,6 +252,18 @@ test('manual dictionary terms override stop words but ignored terms still win', 
 	assert.ok(!ignored.some((candidate) => candidate.query === 'the'));
 });
 
+test('manual dictionary terms bypass the automatic minimum length', () => {
+	const out = extractQueryCandidates('漸進とデロードを計画する', {
+		...BASE,
+		focusedExtraction: false,
+		normalProsePhrases: false,
+		manualDictionaryTerms: ['漸進'],
+	});
+	const found = out.find((candidate) => candidate.query === '漸進');
+	assert.ok(found);
+	assert.equal(found!.dictionaryOrigin, 'manual');
+});
+
 test('probe limit can be wider than the visible result baseline', () => {
 	const text = Array.from({ length: 90 }, (_, i) => `word${i}`).join('\n');
 	const out = extractQueryCandidates(text, {
