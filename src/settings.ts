@@ -9,11 +9,13 @@ import {
 import type DetailSearchLinkerPlugin from './main';
 import { t, type I18nKey } from './i18n';
 import { parseIgnoredTermsText } from './core/ignore/ignoredTerms';
+import { parseDictionaryTermsText } from './core/dictionary/dictionaryTerms';
 import {
 	INTEGER_SETTING_BOUNDS,
 	migrateSettingsCore,
 	repairOrderedPairAfterChange,
 	type CacheMode,
+	type CandidateLimitMode,
 	type DetailSearchLinkerSettings,
 	type IntegerSettingKey,
 	type OrderedPairSettingKey,
@@ -25,6 +27,7 @@ export {
 	DEFAULT_SETTINGS,
 	INTEGER_SETTING_BOUNDS,
 	type CacheMode,
+	type CandidateLimitMode,
 	type DetailSearchLinkerSettings,
 	type HighlightStyle,
 	type OrderedPairSettingKey,
@@ -111,9 +114,13 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 			this.boundedSliderRow('settingsNgramMin', 'settingsNgramMinDesc', 'ngramMinLength'),
 			this.boundedSliderRow('settingsNgramMax', 'settingsNgramMaxDesc', 'ngramMaxLength'),
 			this.boundedSliderRow('settingsMaxAutoQueries', 'settingsMaxAutoQueriesDesc', 'maxAutoQueries'),
+			this.candidateLimitModeRow(),
 			this.boundedSliderRow('settingsNgramSpanLimit', 'settingsNgramSpanLimitDesc', 'ngramSpanLimit'),
 			this.stopWordsRow(),
 			this.ignoredTermsRow(),
+			this.toggleRow('settingsAutoLearnDictionaryTerms', 'autoLearnDictionaryTerms'),
+			this.dictionaryTermsRow('settingsManualDictionaryTerms', 'settingsManualDictionaryTermsDesc', 'manualDictionaryTerms'),
+			this.learnedDictionaryTermsRow(),
 			this.cacheInfoRow(),
 		];
 	}
@@ -300,6 +307,83 @@ export class DetailSearchLinkerSettingTab extends PluginSettingTab {
 						area.inputEl.rows = 4;
 						area.inputEl.addClass('detailsearch-linker-textarea');
 					});
+			},
+		};
+	}
+
+	private candidateLimitModeRow(): SettingDefinitionRender {
+		return {
+			name: this.L('settingsCandidateLimitMode'),
+			desc: this.L('settingsCandidateLimitModeDesc'),
+			render: (setting) => {
+				setting
+					.setName(this.L('settingsCandidateLimitMode'))
+					.setDesc(this.L('settingsCandidateLimitModeDesc'))
+					.addDropdown((dropdown) =>
+						dropdown
+							.addOption('adaptive', this.L('candidateLimitAdaptive'))
+							.addOption('fixed', this.L('candidateLimitFixed'))
+							.setValue(this.plugin.settings.candidateLimitMode)
+							.onChange(async (value) => {
+								this.plugin.settings.candidateLimitMode = value as CandidateLimitMode;
+								await this.plugin.saveSettings();
+							}),
+					);
+			},
+		};
+	}
+
+	private dictionaryTermsRow(
+		nameKey: I18nKey,
+		descKey: I18nKey,
+		field: 'manualDictionaryTerms' | 'learnedDictionaryTerms',
+	): SettingDefinitionRender {
+		return {
+			name: this.L(nameKey),
+			desc: this.L(descKey),
+			render: (setting) => {
+				setting
+					.setName(this.L(nameKey))
+					.setDesc(this.L(descKey))
+					.addTextArea((area) => {
+						area
+							.setValue(this.plugin.settings[field].join('\n'))
+							.onChange(async (value) => {
+								this.plugin.settings[field] = parseDictionaryTermsText(value);
+								await this.plugin.saveSettings();
+							});
+						area.inputEl.rows = 4;
+						area.inputEl.addClass('detailsearch-linker-textarea');
+					});
+			},
+		};
+	}
+
+	private learnedDictionaryTermsRow(): SettingDefinitionRender {
+		return {
+			name: this.L('settingsLearnedDictionaryTerms'),
+			desc: this.L('settingsLearnedDictionaryTermsDesc'),
+			render: (setting) => {
+				setting
+					.setName(this.L('settingsLearnedDictionaryTerms'))
+					.setDesc(this.L('settingsLearnedDictionaryTermsDesc'))
+					.addTextArea((area) => {
+						area
+							.setValue(this.plugin.settings.learnedDictionaryTerms.join('\n'))
+							.onChange(async (value) => {
+								this.plugin.settings.learnedDictionaryTerms = parseDictionaryTermsText(value);
+								await this.plugin.saveSettings();
+							});
+						area.inputEl.rows = 4;
+						area.inputEl.addClass('detailsearch-linker-textarea');
+					})
+					.addButton((button) =>
+						button.setButtonText(this.L('clearLearnedDictionaryTerms')).onClick(() => {
+							this.plugin.settings.learnedDictionaryTerms = [];
+							void this.plugin.saveSettings();
+							this.update();
+						}),
+					);
 			},
 		};
 	}

@@ -1,8 +1,10 @@
 import { covers, findProtectedSpans } from '../protectedSpans';
-import { normalizeTerm } from '../search/termMatch';
+import { findTermOccurrences, normalizeTerm } from '../search/termMatch';
 import { validateQuery } from '../query/queryValidation';
 
 export type ExtractSource = 'heading' | 'emphasis' | 'highlight' | 'prose' | 'ngram';
+export type ExtractKind = 'focused' | 'word' | 'phrase' | 'ngram' | 'dictionary';
+export type DictionaryOrigin = 'manual' | 'learned';
 
 export interface ExtractAnchor {
 	from: number;
@@ -16,6 +18,8 @@ export interface ExtractedCandidate {
 	source: ExtractSource;
 	score: number;
 	anchors: ExtractAnchor[];
+	kind?: ExtractKind;
+	dictionaryOrigin?: DictionaryOrigin;
 }
 
 export interface ExtractSettings {
@@ -31,6 +35,10 @@ export interface ExtractSettings {
 	stopWords: string[];
 	ignoredTerms: string[];
 	caseSensitive: boolean;
+	/** Internal pre-search pool. The visible result cap is applied after hits are known. */
+	probeQueryLimit?: number;
+	manualDictionaryTerms?: string[];
+	learnedDictionaryTerms?: string[];
 }
 
 export const HARD_CAP_AUTO_QUERIES = 200;
@@ -97,6 +105,8 @@ function pushRaw(
 	to: number,
 	source: ExtractSource,
 	protectedSpans: { start: number; end: number }[],
+	kind: ExtractKind = source === 'ngram' ? 'ngram' : source === 'prose' ? 'word' : 'focused',
+	dictionaryOrigin?: DictionaryOrigin,
 ): void {
 	const trimmed = trimSpan(text, from, to);
 	if (!trimmed) {
@@ -111,6 +121,8 @@ function pushRaw(
 		source,
 		score: tierScore(source, trimmed.query),
 		anchors: [{ from: trimmed.from, to: trimmed.to, text: trimmed.query }],
+		kind,
+		dictionaryOrigin,
 	});
 }
 
@@ -130,7 +142,7 @@ function extractHeadingsList(
 		const prefix = m[0].indexOf(content);
 		const from = lineStart + prefix;
 		const to = from + content.length;
-		pushRaw(out, text, from, to, 'heading', protectedSpans);
+		pushRaw(out, text, from, to, 'heading', protectedSpans, 'focused');
 	}
 	return out;
 }
@@ -151,7 +163,7 @@ function extractInlinePattern(
 			continue;
 		}
 		const start = m.index + m[0].indexOf(inner);
-		pushRaw(out, text, start, start + inner.length, source, protectedSpans);
+		pushRaw(out, text, start, start + inner.length, source, protectedSpans, 'focused');
 	}
 	return out;
 }
@@ -259,7 +271,7 @@ function extractProse(
 			const from = offset + spans[i]!.from;
 			const to = offset + spans[i]!.to;
 			if (phrase.length >= settings.minTermLength && phrase.length <= settings.maxTermLength) {
-				pushRaw(out, text, from, to, 'prose', protectedSpans);
+				pushRaw(out, text, from, to, 'prose', protectedSpans, 'word');
 				singleWordEmitted++;
 				emitted++;
 			}
@@ -276,7 +288,7 @@ function extractProse(
 				const from = offset + spans[i]!.from;
 				const to = offset + spans[i + phraseLen - 1]!.to;
 				if (phrase.length >= settings.minTermLength && phrase.length <= settings.maxTermLength) {
-					pushRaw(out, text, from, to, 'prose', protectedSpans);
+					pushRaw(out, text, from, to, 'prose', protectedSpans, 'phrase');
 					emitted++;
 				}
 			}
@@ -307,7 +319,7 @@ function extractNgrams(
 				const from = base + i;
 				const to = from + len;
 				if (slice.length >= settings.ngramMinLength) {
-					pushRaw(out, text, from, to, 'ngram', protectedSpans);
+					pushRaw(out, text, from, to, 'ngram', protectedSpans, 'ngram');
 					emitted++;
 				}
 			}
@@ -328,6 +340,33 @@ function ignoredSet(settings: ExtractSettings): Set<string> {
 	);
 }
 
+function extractDictionaryTerms(
+	text: string,
+	settings: ExtractSettings,
+	protectedSpans: ReturnType<typeof findProtectedSpans>,
+): ExtractedCandidate[] {
+	const out: ExtractedCandidate[] = [];
+	const entries: { term: string; origin: DictionaryOrigin }[] = [
+		...(settings.learnedDictionaryTerms ?? []).map((term) => ({ term, origin: 'learned' as const })),
+		...(settings.manualDictionaryTerms ?? []).map((term) => ({ term, origin: 'manual' as const })),
+	];
+	for (const { term, origin } of entries) {
+		for (const occurrence of findTermOccurrences(text, term, settings.caseSensitive, protectedSpans)) {
+			pushRaw(
+				out,
+				text,
+				occurrence.from,
+				occurrence.to,
+				'prose',
+				protectedSpans,
+				'dictionary',
+				origin,
+			);
+		}
+	}
+	return out;
+}
+
 function applyProseFrequencyBonus(candidate: ExtractedCandidate): void {
 	if (candidate.source !== 'prose' || candidate.anchors.length < 2) {
 		return;
@@ -346,7 +385,7 @@ function mergeCandidates(raw: ExtractedCandidate[], settings: ExtractSettings): 
 
 	for (const item of raw) {
 		const key = normalizeTerm(item.query, settings.caseSensitive);
-		if (!key || stop.has(key) || ignored.has(key)) {
+		if (!key || ignored.has(key) || (stop.has(key) && item.dictionaryOrigin !== 'manual')) {
 			continue;
 		}
 		if (key.length < settings.minTermLength || key.length > settings.maxTermLength) {
@@ -373,6 +412,13 @@ function mergeCandidates(raw: ExtractedCandidate[], settings: ExtractSettings): 
 			existing.score = item.score;
 			existing.displayText = item.displayText;
 		}
+		if (
+			item.dictionaryOrigin === 'manual'
+			|| (!existing.dictionaryOrigin && item.dictionaryOrigin === 'learned')
+		) {
+			existing.dictionaryOrigin = item.dictionaryOrigin;
+			existing.kind = 'dictionary';
+		}
 		for (const anchor of item.anchors) {
 			const dup = existing.anchors.some((a) => a.from === anchor.from && a.to === anchor.to);
 			if (!dup) {
@@ -386,9 +432,13 @@ function mergeCandidates(raw: ExtractedCandidate[], settings: ExtractSettings): 
 	}
 
 	const sorted = [...byKey.values()].sort(
-		(a, b) => b.score - a.score || b.query.length - a.query.length,
+		(a, b) =>
+			(b.dictionaryOrigin === 'manual' ? 2 : b.dictionaryOrigin === 'learned' ? 1 : 0)
+				- (a.dictionaryOrigin === 'manual' ? 2 : a.dictionaryOrigin === 'learned' ? 1 : 0)
+			|| b.score - a.score
+			|| b.query.length - a.query.length,
 	);
-	const cap = Math.min(settings.maxAutoQueries, HARD_CAP_AUTO_QUERIES);
+	const cap = Math.min(settings.probeQueryLimit ?? settings.maxAutoQueries, HARD_CAP_AUTO_QUERIES);
 	return sorted.slice(0, cap);
 }
 
@@ -406,6 +456,8 @@ export function extractQueryCandidates(text: string, settings: ExtractSettings):
 	if (settings.normalProsePhrases) {
 		raw.push(...extractProse(text, settings, protectedSpans));
 	}
+
+	raw.push(...extractDictionaryTerms(text, settings, protectedSpans));
 
 	if (settings.broadNgram) {
 		raw.push(...extractNgrams(text, settings, protectedSpans));

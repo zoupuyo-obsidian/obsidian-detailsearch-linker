@@ -1,4 +1,5 @@
 import { HARD_CAP_AUTO_QUERIES } from '../extract/queryExtractor';
+import { MAX_LEARNED_DICTIONARY_TERMS, normalizeDictionaryTerms } from '../dictionary/dictionaryTerms';
 import { normalizeIgnoredTerms } from '../ignore/ignoredTerms';
 import { MAX_FILE_BYTES } from '../query/queryValidation';
 import type { ScopeMode } from '../search/scopeFilter';
@@ -6,6 +7,7 @@ import type { ScopeMode } from '../search/scopeFilter';
 export type UiLanguage = 'ja' | 'en';
 export type HighlightStyle = 'invert' | 'marker' | 'color' | 'underline';
 export type CacheMode = 'memory' | 'persistent';
+export type CandidateLimitMode = 'adaptive' | 'fixed';
 
 export interface DetailSearchLinkerSettings {
 	uiLanguage: UiLanguage;
@@ -36,6 +38,10 @@ export interface DetailSearchLinkerSettings {
 	ngramSpanLimit: number;
 	autoStopWords: string[];
 	ignoredTerms: string[];
+	candidateLimitMode: CandidateLimitMode;
+	autoLearnDictionaryTerms: boolean;
+	manualDictionaryTerms: string[];
+	learnedDictionaryTerms: string[];
 }
 
 export interface IntegerSettingBound {
@@ -100,6 +106,10 @@ export const DEFAULT_SETTINGS: DetailSearchLinkerSettings = {
 		'の', 'に', 'は', 'を', 'が', 'と', 'で', 'も',
 	],
 	ignoredTerms: [],
+	candidateLimitMode: 'adaptive',
+	autoLearnDictionaryTerms: true,
+	manualDictionaryTerms: [],
+	learnedDictionaryTerms: [],
 };
 
 export interface SettingsMigrationDependencies {
@@ -252,6 +262,11 @@ export function migrateSettingsCore(
 			stringItems(raw.ignoredTerms),
 			booleanValue(raw.caseSensitive, DEFAULT_SETTINGS.caseSensitive),
 		),
+		candidateLimitMode: enumValue(raw.candidateLimitMode, ['adaptive', 'fixed'], DEFAULT_SETTINGS.candidateLimitMode),
+		autoLearnDictionaryTerms: booleanValue(raw.autoLearnDictionaryTerms, DEFAULT_SETTINGS.autoLearnDictionaryTerms),
+		manualDictionaryTerms: normalizeDictionaryTerms(stringItems(raw.manualDictionaryTerms)),
+		learnedDictionaryTerms: normalizeDictionaryTerms(stringItems(raw.learnedDictionaryTerms))
+			.slice(-MAX_LEARNED_DICTIONARY_TERMS),
 	};
 
 	repairOrderedPair(settings, raw, 'autoMinTermLength', 'autoMaxTermLength');

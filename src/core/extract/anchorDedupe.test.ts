@@ -37,3 +37,20 @@ test('emphasis beats ngram when both hit and overlap', () => {
 	assert.equal(kept.length, 1);
 	assert.equal(kept[0]!.source, 'emphasis');
 });
+
+test('final post-search rank lets selected words beat an overlapping prose phrase', () => {
+	const kept = dedupeOverlappingAnchors([
+		{ from: 0, to: 12, text: 'レジスタンストレーニング', score: 420, groupKey: 'phrase', source: 'prose', stableIndex: 0, rank: 10 },
+		{ from: 0, to: 6, text: 'レジスタンス', score: 406, groupKey: 'resistance', source: 'prose', stableIndex: 1, rank: 0 },
+		{ from: 6, to: 12, text: 'トレーニング', score: 406, groupKey: 'training', source: 'prose', stableIndex: 2, rank: 1 },
+	]);
+	assert.deepEqual(kept.map((item) => item.groupKey), ['resistance', 'training']);
+});
+
+test('focused markup remains ahead of a better-ranked ordinary word', () => {
+	const kept = dedupeOverlappingAnchors([
+		{ from: 0, to: 8, text: '強調語', score: 1200, groupKey: 'focused', source: 'emphasis', stableIndex: 0, rank: 10 },
+		{ from: 0, to: 4, text: '強調', score: 406, groupKey: 'word', source: 'prose', stableIndex: 1, rank: 0 },
+	]);
+	assert.equal(kept[0]!.groupKey, 'focused');
+});

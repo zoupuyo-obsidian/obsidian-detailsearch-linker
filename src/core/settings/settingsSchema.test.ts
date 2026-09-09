@@ -125,11 +125,26 @@ test('mutating migrated arrays cannot change defaults or another migration', () 
 	const first = migrateSettingsCore({});
 	first.autoStopWords.push('mutation');
 	first.includeFolders.push('folder');
+	first.manualDictionaryTerms.push('manual');
 
 	const second = migrateSettingsCore({});
 	assert.deepEqual(second.autoStopWords, DEFAULT_SETTINGS.autoStopWords);
 	assert.deepEqual(second.includeFolders, []);
 	assert.ok(!DEFAULT_SETTINGS.autoStopWords.includes('mutation'));
+	assert.deepEqual(second.manualDictionaryTerms, []);
+});
+
+test('dictionary and adaptive candidate settings migrate safely', () => {
+	const settings = migrateSettingsCore({
+		candidateLimitMode: 'fixed',
+		autoLearnDictionaryTerms: false,
+		manualDictionaryTerms: [' Alpha ', 'alpha', 'bad\nterm'],
+		learnedDictionaryTerms: ['レジスタンス', 'レジスタンス'],
+	});
+	assert.equal(settings.candidateLimitMode, 'fixed');
+	assert.equal(settings.autoLearnDictionaryTerms, false);
+	assert.deepEqual(settings.manualDictionaryTerms, ['Alpha']);
+	assert.deepEqual(settings.learnedDictionaryTerms, ['レジスタンス']);
 });
 
 test('path normalizer dependency is applied after trimming and before dedupe', () => {

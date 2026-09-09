@@ -174,7 +174,10 @@ Folder and scope settings never change what is extracted from the current note. 
 | **Broad n-gram extraction** | Off (default). On: cut overlapping short runs from continuous Japanese or similar text. More candidates, more weak matches. |
 | **Minimum / maximum term length** | Discard extracted phrases outside this range. Raising the minimum removes short particles and two-character noise. |
 | **N-gram min / max / span** | Used only when broad n-gram is on. Wider spans produce more fragments. |
-| **Max auto candidates** | How many extracted phrases are actually searched. Default is 40. Extra phrases are dropped after priority ranking. Absolute ceiling is 200. |
+| **Auto-candidate baseline** | Default 40. Adaptive mode explores 120 terms by default (up to 200 if the baseline is raised), then displays roughly 20–60 matched terms according to highlight density. Fixed mode uses this value as the display cap. |
+| **Candidate count mode** | Adaptive (default) uses highlights in the current note, not destination-note count, to avoid a dense result. Fixed mode remains available. |
+| **Manual dictionary terms** | One term per line. Prioritized terms can also be found inside longer compound words. |
+| **Learn terms from created links** | Only safe terms from successfully created links are stored locally in this Vault. The learned list is editable, clearable, and capped at 200 terms. |
 | **Stop words** | Removed during extraction. |
 | **Ignored terms** | Removed during extraction. Selection search still runs. |
 | **Case sensitive** | Off (default): English matches ignore case. Japanese is largely unaffected. |

@@ -16,7 +16,7 @@ function hit(path: string, offset: number): BodyHit {
 	return {
 		path,
 		offset,
-		length: 4,
+		mtime: 1,
 		excerpt: 'term',
 		heading: '',
 	};

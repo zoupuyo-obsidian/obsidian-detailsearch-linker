@@ -8,6 +8,8 @@ export interface ScoredAnchorInput {
 	groupKey: string;
 	source: ExtractSource;
 	stableIndex: number;
+	/** Final post-search candidate ranking; lower is better. */
+	rank?: number;
 }
 
 function rangesOverlap(a: { from: number; to: number }, b: { from: number; to: number }): boolean {
@@ -16,11 +18,13 @@ function rangesOverlap(a: { from: number; to: number }, b: { from: number; to: n
 
 /**
  * Greedy non-overlap selection across all auto candidates.
- * Priority: score desc → longer range → earlier from → stable index asc.
+ * Priority: explicit focused markup → final candidate rank → extraction score.
  */
 export function dedupeOverlappingAnchors(anchors: ScoredAnchorInput[]): ScoredAnchorInput[] {
 	const sorted = [...anchors].sort(
 		(a, b) =>
+			focusedPriority(b.source) - focusedPriority(a.source) ||
+			(a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) ||
 			b.score - a.score ||
 			b.to - b.from - (a.to - a.from) ||
 			a.from - b.from ||
@@ -37,6 +41,12 @@ export function dedupeOverlappingAnchors(anchors: ScoredAnchorInput[]): ScoredAn
 		kept.push(cand);
 	}
 	return kept.sort((a, b) => a.from - b.from || a.stableIndex - b.stableIndex);
+}
+
+function focusedPriority(source: ExtractSource): number {
+	return source === 'emphasis' || source === 'highlight'
+		? 2
+		: source === 'heading' ? 1 : 0;
 }
 
 export function anchorIdentity(from: number, to: number, groupKey: string): string {

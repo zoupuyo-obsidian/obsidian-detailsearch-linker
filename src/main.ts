@@ -32,12 +32,17 @@ import {
 	shouldClearRepeatedClipboardSearch,
 } from './core/commands/unifiedSearch';
 import { addIgnoredTerm } from './core/ignore/ignoredTerms';
+import { isLearnableDictionaryTerm, learnDictionaryTerm } from './core/dictionary/dictionaryTerms';
 import { removeGroupFromSession, resolveIgnoreGroupKey } from './core/ignore/sessionIgnore';
 import {
 	extractQueryCandidates,
 	groupKeyForQuery,
 	type ExtractSettings,
 } from './core/extract/queryExtractor';
+import {
+	autoCandidateProbeLimit,
+	selectMatchedAutoCandidates,
+} from './core/extract/autoCandidateSelector';
 import {
 	generateHeadingLink,
 	resolveHeadingAtOffset,
@@ -549,6 +554,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			stopWords: this.settings.autoStopWords,
 			ignoredTerms: this.settings.ignoredTerms,
 			caseSensitive: this.settings.caseSensitive,
+			probeQueryLimit: autoCandidateProbeLimit(this.settings.maxAutoQueries),
+			manualDictionaryTerms: this.settings.manualDictionaryTerms,
+			learnedDictionaryTerms: this.settings.learnedDictionaryTerms,
 		};
 	}
 
@@ -1047,6 +1055,35 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				new Notice(tf(lang, 'noticeSearchReadErrors', readErrors.size));
 			}
 
+			const matched: {
+				key: string;
+				candidate: (typeof extracted)[number];
+				candidateNoteCount: number;
+				payload: ReturnType<typeof groupHitsToCandidates>;
+				stableIndex: number;
+			}[] = [];
+			let matchedIndex = 0;
+			for (const candidate of extracted) {
+				const key = groupKeyForQuery(candidate.query, this.settings.caseSensitive);
+				const outcome = result.byTerm.get(key);
+				if (!outcome || outcome.hits.length === 0) {
+					continue;
+				}
+				const noteCandidates = groupHitsToCandidates(outcome.hits, (p) => this.resolveMeta(p));
+				matched.push({
+					key,
+					candidate,
+					candidateNoteCount: noteCandidates.length,
+					payload: noteCandidates,
+					stableIndex: matchedIndex++,
+				});
+			}
+
+			const selected = selectMatchedAutoCandidates({
+				candidates: matched,
+				baseLimit: this.settings.maxAutoQueries,
+				mode: this.settings.candidateLimitMode,
+			});
 			const scoredInputs: {
 				from: number;
 				to: number;
@@ -1056,6 +1093,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				source: import('./core/extract/queryExtractor').ExtractSource;
 				stableIndex: number;
 				candidate: (typeof extracted)[number];
+				rank: number;
 			}[] = [];
 			let stableIndex = 0;
 
@@ -1064,13 +1102,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				{ candidate: (typeof extracted)[number]; noteCandidates: ReturnType<typeof groupHitsToCandidates> }
 			>();
 
-			for (const candidate of extracted) {
-				const key = groupKeyForQuery(candidate.query, this.settings.caseSensitive);
-				const outcome = result.byTerm.get(key);
-				if (!outcome || outcome.hits.length === 0) {
-					continue;
-				}
-				const noteCandidates = groupHitsToCandidates(outcome.hits, (p) => this.resolveMeta(p));
+			for (const item of selected) {
+				const { key, candidate, payload: noteCandidates, rank } = item;
 				groupMeta.set(key, { candidate, noteCandidates });
 				for (const a of candidate.anchors) {
 					scoredInputs.push({
@@ -1082,6 +1115,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 						source: candidate.source,
 						stableIndex: stableIndex++,
 						candidate,
+						rank,
 					});
 				}
 			}
@@ -1684,6 +1718,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		cm.dispatch({
 			changes: { from: live.from, to: live.to, insert },
 		});
+		this.learnLinkedTerm(group.query);
 
 		const mappedSession = readDetailSession(cm.state);
 		if (!mappedSession) {
@@ -1731,5 +1766,30 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.ribbonItems
 			.get('clipboard-search')
 			?.setAttr('aria-label', t(lang, 'cmdSearchClipboard'));
+	}
+
+	private learnLinkedTerm(term: string): void {
+		if (!this.settings.autoLearnDictionaryTerms || !isLearnableDictionaryTerm(term, {
+			minLength: this.settings.autoMinTermLength,
+			maxLength: this.settings.autoMaxTermLength,
+			stopWords: this.settings.autoStopWords,
+			ignoredTerms: this.settings.ignoredTerms,
+			caseSensitive: this.settings.caseSensitive,
+		})) {
+			return;
+		}
+		const next = learnDictionaryTerm(
+			this.settings.learnedDictionaryTerms,
+			this.settings.manualDictionaryTerms,
+			term,
+		);
+		if (
+			next.length === this.settings.learnedDictionaryTerms.length
+			&& next.every((item, index) => item === this.settings.learnedDictionaryTerms[index])
+		) {
+			return;
+		}
+		this.settings.learnedDictionaryTerms = next;
+		void this.saveSettings();
 	}
 }

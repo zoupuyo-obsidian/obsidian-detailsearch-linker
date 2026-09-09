@@ -216,3 +216,52 @@ test('existing markdown link text is not an anchor source', () => {
 		}
 	}
 });
+
+test('dictionary terms become candidates inside an otherwise compound token', () => {
+	const text = '高強度レジスタンストレーニングを継続する';
+	const out = extractQueryCandidates(text, {
+		...BASE,
+		focusedExtraction: false,
+		normalProsePhrases: false,
+		manualDictionaryTerms: ['レジスタンス', 'トレーニング'],
+	});
+	for (const term of ['レジスタンス', 'トレーニング']) {
+		const found = out.find((candidate) => candidate.query === term);
+		assert.ok(found, term);
+		assert.equal(found!.dictionaryOrigin, 'manual');
+		assert.equal(text.slice(found!.anchors[0]!.from, found!.anchors[0]!.to), term);
+	}
+});
+
+test('manual dictionary terms override stop words but ignored terms still win', () => {
+	const text = 'the topic';
+	const manual = extractQueryCandidates(text, {
+		...BASE,
+		focusedExtraction: false,
+		normalProsePhrases: false,
+		manualDictionaryTerms: ['the'],
+	});
+	assert.ok(manual.some((candidate) => candidate.query === 'the'));
+	const ignored = extractQueryCandidates(text, {
+		...BASE,
+		focusedExtraction: false,
+		normalProsePhrases: false,
+		manualDictionaryTerms: ['the'],
+		ignoredTerms: ['the'],
+	});
+	assert.ok(!ignored.some((candidate) => candidate.query === 'the'));
+});
+
+test('probe limit can be wider than the visible result baseline', () => {
+	const text = Array.from({ length: 90 }, (_, i) => `word${i}`).join('\n');
+	const out = extractQueryCandidates(text, {
+		...BASE,
+		focusedExtraction: false,
+		normalProsePhrases: true,
+		maxAutoQueries: 40,
+		probeQueryLimit: 120,
+		minTermLength: 4,
+	});
+	assert.ok(out.length > 40);
+	assert.ok(out.length <= 120);
+});
