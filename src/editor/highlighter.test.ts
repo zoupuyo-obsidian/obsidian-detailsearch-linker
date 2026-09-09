@@ -4,6 +4,7 @@ import { EditorState, StateEffect } from '@codemirror/state';
 import {
 	detailSessionField,
 	detailsearchLinkerEditorExtension,
+	bindEditorFilePathEffect,
 	planHighlightRanges,
 	readDetailSession,
 	canPaintSession,
@@ -58,6 +59,50 @@ test('editor extension can be installed into an existing editor state', () => {
 		effects: setDetailSessionEffect.of(session()),
 	}).state;
 	assert.deepEqual(readDetailSession(updated)?.anchors, session().anchors);
+
+	assert.doesNotThrow(() => updated.update({
+		effects: [
+			bindEditorFilePathEffect.of('source.md'),
+			setDetailSessionEffect.of(session()),
+		],
+	}).state);
+});
+
+test('extension applies a bound path and session together without throwing', () => {
+	const initial = EditorState.create({
+		doc: 'a target z',
+		extensions: [detailsearchLinkerEditorExtension()],
+	});
+	assert.doesNotThrow(() => initial.update({
+		effects: [
+			bindEditorFilePathEffect.of('source.md'),
+			setDetailSessionEffect.of(session()),
+		],
+	}).state);
+});
+
+test('extension accepts adjacent marked terms with badges', () => {
+	const initial = EditorState.create({
+		doc: 'targettarget',
+		extensions: [detailsearchLinkerEditorExtension()],
+	});
+	const value = session(true, {
+		anchors: [
+			{ id: 'first', from: 0, to: 6, text: 'target', groupKey: 'first' },
+			{ id: 'second', from: 6, to: 12, text: 'target', groupKey: 'second' },
+		],
+		showBadge: true,
+		groups: [
+			{ key: 'first', query: 'target', displayText: 'target', canLink: true, candidates: [{} as never] },
+			{ key: 'second', query: 'target', displayText: 'target', canLink: true, candidates: [{} as never] },
+		],
+	});
+	assert.doesNotThrow(() => initial.update({
+		effects: [
+			bindEditorFilePathEffect.of('source.md'),
+			setDetailSessionEffect.of(value),
+		],
+	}).state);
 });
 
 test('full-document replacement clears an existing session', () => {
@@ -115,7 +160,7 @@ test('decoration planning drops stale out-of-bounds anchors', () => {
 	);
 
 	assert.deepEqual(ranges, [
-		{ from: 2, to: 8, kind: 'mark', sortOrder: 0 },
+		{ from: 2, to: 8, kind: 'mark', sortOrder: 1 },
 	]);
 });
 

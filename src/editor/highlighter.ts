@@ -75,7 +75,9 @@ export function planHighlightRanges(
 			from: p.from,
 			to: p.to,
 			kind: p.kind,
-			sortOrder: p.kind === 'mark' ? 0 : 1,
+			// A widget at the end of one mark must precede a mark beginning at
+			// that same offset in CodeMirror's RangeSetBuilder ordering.
+			sortOrder: p.kind === 'widget' ? 0 : 1,
 		})),
 	);
 }
@@ -122,7 +124,7 @@ function buildDecorations(
 			from: p.from,
 			to: p.to,
 			kind: p.kind,
-			sortOrder: p.kind === 'mark' ? 0 : 1,
+			sortOrder: p.kind === 'widget' ? 0 : 1,
 		})),
 	);
 	const builder = new RangeSetBuilder<Decoration>();
