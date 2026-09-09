@@ -10,10 +10,8 @@ import {
 import {
 	Decoration,
 	EditorView,
-	ViewPlugin,
 	WidgetType,
 	type DecorationSet,
-	type ViewUpdate,
 } from '@codemirror/view';
 import {
 	emptySession,
@@ -285,20 +283,29 @@ export const detailSessionField = StateField.define<DetailSessionState>({
 
 const badgeAriaLabelFacet = Facet.define<(count: number) => string>();
 
-function buildViewDecorations(view: EditorView): DecorationSet {
-	const session = readDetailSession(view.state);
-	const doc = view.state.doc.toString();
+function buildStateDecorations(state: EditorState): DecorationSet {
+	const session = readDetailSession(state);
+	const doc = state.doc.toString();
 	if (
 		!session ||
-		!canPaintSession(session, readBoundEditorPath(view.state), doc)
+		!canPaintSession(session, readBoundEditorPath(state), doc)
 	) {
 		return Decoration.none;
 	}
 	const label =
-		view.state.facet(badgeAriaLabelFacet)[0] ??
+		state.facet(badgeAriaLabelFacet)[0] ??
 		((count: number) => `${count} link candidates`);
 	return buildDecorations(session, doc, label);
 }
+
+const detailDecorationField = StateField.define<DecorationSet>({
+	create: (state) => buildStateDecorations(state),
+	// Build from the finished transaction state so session and bound-path
+	// effects are observed together. This is the mobile-safe CodeMirror
+	// decoration path; it does not rely on a ViewPlugin refresh.
+	update: (_value, tr) => buildStateDecorations(tr.state),
+	provide: (field) => EditorView.decorations.from(field),
+});
 
 export function detailsearchLinkerEditorExtension(
 	badgeAriaLabel: (count: number) => string = (count) =>
@@ -308,21 +315,7 @@ export function detailsearchLinkerEditorExtension(
 		detailSessionField,
 		editorBoundPathField,
 		badgeAriaLabelFacet.of(badgeAriaLabel),
-		// Rebuild from the current session+doc on every update. A computed
-		// DecorationSet is mapped through file-switch replacements and can
-		// stretch source marks across the newly opened note.
-		ViewPlugin.fromClass(
-			class {
-				decorations: DecorationSet;
-				constructor(view: EditorView) {
-					this.decorations = buildViewDecorations(view);
-				}
-				update(update: ViewUpdate) {
-					this.decorations = buildViewDecorations(update.view);
-				}
-			},
-			{ decorations: (plugin) => plugin.decorations },
-		),
+		detailDecorationField,
 	];
 }
 export function findAnchorIdFromEventTarget(target: EventTarget | null): string | null {
