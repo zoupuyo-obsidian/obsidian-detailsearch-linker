@@ -168,6 +168,44 @@ test('prose joins adjacent japanese word segments', () => {
 	assert.ok(phrase, 'expected combined 認知負荷 phrase');
 });
 
+test('repeated Japanese token survives a long line and the 40-query cap', () => {
+	const sourceLine = 'ホエイプロテインとビタミンD3補給の筋への効果';
+	const englishNoise = Array.from(
+		{ length: 35 },
+		(_, i) => `long technical phrase ${i} appears once`,
+	).join('\n');
+	const out = extractQueryCandidates(
+		`${sourceLine}\n${sourceLine}\n${sourceLine}\n${englishNoise}`,
+		{
+			...BASE,
+			focusedExtraction: false,
+			normalProsePhrases: true,
+			maxAutoQueries: 40,
+		},
+	);
+	const protein = out.find((candidate) => candidate.query === 'プロテイン');
+	assert.ok(protein, 'expected プロテイン to be kept as a one-word prose candidate');
+	assert.equal(protein!.anchors.length, 3);
+	assert.ok(protein!.score > 405, 'repeated prose terms receive a bounded ranking bonus');
+});
+
+test('prose repetition bonus never outranks headings', () => {
+	const repeated = Array.from(
+		{ length: 8 },
+		() => 'ホエイプロテインとビタミンD3補給の筋への効果',
+	).join('\n');
+	const out = extractQueryCandidates(`## Important heading\n${repeated}`, {
+		...BASE,
+		normalProsePhrases: true,
+		maxAutoQueries: 40,
+	});
+	const heading = out.findIndex((candidate) => candidate.query === 'Important heading');
+	const protein = out.findIndex((candidate) => candidate.query === 'プロテイン');
+	assert.ok(heading >= 0);
+	assert.ok(protein >= 0);
+	assert.ok(heading < protein);
+});
+
 test('existing markdown link text is not an anchor source', () => {
 	const text = '[[linked term]] plain term';
 	const out = extractQueryCandidates(text, { ...BASE, normalProsePhrases: true });

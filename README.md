@@ -170,7 +170,7 @@ Folder and scope settings never change what is extracted from the current note. 
 | Setting | If you change it |
 |---------|------------------|
 | **Prefer headings and emphasis** | On (default): take phrases from ATX headings, bold, and `==highlights==`. Off: those sources are skipped. |
-| **Extract phrases from ordinary prose** | On (default): also take longer words and phrases from sentences. Off: only headings and emphasis (when enabled). |
+| **Extract phrases from ordinary prose** | On (default): take both words and phrases from sentences without letting phrases consume every line's budget. Repeated wording ranks higher. Off: only headings and emphasis (when enabled). |
 | **Broad n-gram extraction** | Off (default). On: cut overlapping short runs from continuous Japanese or similar text. More candidates, more weak matches. |
 | **Minimum / maximum term length** | Discard extracted phrases outside this range. Raising the minimum removes short particles and two-character noise. |
 | **N-gram min / max / span** | Used only when broad n-gram is on. Wider spans produce more fragments. |
@@ -179,7 +179,7 @@ Folder and scope settings never change what is extracted from the current note. 
 | **Ignored terms** | Removed during extraction. Selection search still runs. |
 | **Case sensitive** | Off (default): English matches ignore case. Japanese is largely unaffected. |
 
-Priority when too many phrases are extracted: emphasis and highlights first, then headings, then prose, then n-grams.
+Priority when too many phrases are extracted: emphasis and highlights first, then headings, then prose, then n-grams. Repeated prose wording ranks higher within the prose tier.
 
 ### How results look and how far they go
 

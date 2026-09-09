@@ -35,7 +35,10 @@ export interface ExtractSettings {
 
 export const HARD_CAP_AUTO_QUERIES = 200;
 const PROSE_PHRASES_PER_LINE = 16;
+const PROSE_SINGLE_WORDS_PER_LINE = Math.ceil(PROSE_PHRASES_PER_LINE / 2);
 const MAX_PHRASE_WORDS = 3;
+const PROSE_FREQUENCY_BONUS_PER_REPEAT = 40;
+const MAX_PROSE_FREQUENCY_BONUS = 160;
 
 const CJK_RUN =
 	/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
@@ -247,7 +250,21 @@ function extractProse(
 		}
 		const spans = segmentWordsWithOffsets(line).filter((s) => s.isWordLike);
 		let emitted = 0;
-		for (let phraseLen = MAX_PHRASE_WORDS; phraseLen >= 1; phraseLen--) {
+		let singleWordEmitted = 0;
+		for (let i = 0; i < spans.length && singleWordEmitted < PROSE_SINGLE_WORDS_PER_LINE; i++) {
+			const phrase = phraseFromWordSpans(line, spans, i, 1);
+			if (!phrase) {
+				continue;
+			}
+			const from = offset + spans[i]!.from;
+			const to = offset + spans[i]!.to;
+			if (phrase.length >= settings.minTermLength && phrase.length <= settings.maxTermLength) {
+				pushRaw(out, text, from, to, 'prose', protectedSpans);
+				singleWordEmitted++;
+				emitted++;
+			}
+		}
+		for (let phraseLen = MAX_PHRASE_WORDS; phraseLen >= 2 && emitted < PROSE_PHRASES_PER_LINE; phraseLen--) {
 			for (let i = 0; i + phraseLen <= spans.length; i++) {
 				if (emitted >= PROSE_PHRASES_PER_LINE) {
 					break;
@@ -311,6 +328,17 @@ function ignoredSet(settings: ExtractSettings): Set<string> {
 	);
 }
 
+function applyProseFrequencyBonus(candidate: ExtractedCandidate): void {
+	if (candidate.source !== 'prose' || candidate.anchors.length < 2) {
+		return;
+	}
+	const repeats = Math.min(
+		candidate.anchors.length - 1,
+		MAX_PROSE_FREQUENCY_BONUS / PROSE_FREQUENCY_BONUS_PER_REPEAT,
+	);
+	candidate.score += repeats * PROSE_FREQUENCY_BONUS_PER_REPEAT;
+}
+
 function mergeCandidates(raw: ExtractedCandidate[], settings: ExtractSettings): ExtractedCandidate[] {
 	const stop = stopSet(settings);
 	const ignored = ignoredSet(settings);
@@ -351,6 +379,10 @@ function mergeCandidates(raw: ExtractedCandidate[], settings: ExtractSettings): 
 				existing.anchors.push(anchor);
 			}
 		}
+	}
+
+	for (const candidate of byKey.values()) {
+		applyProseFrequencyBonus(candidate);
 	}
 
 	const sorted = [...byKey.values()].sort(
