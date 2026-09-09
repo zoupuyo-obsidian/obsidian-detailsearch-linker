@@ -1,4 +1,5 @@
 import { EditorView } from '@codemirror/view';
+import { StateEffect } from '@codemirror/state';
 import {
 	MarkdownView,
 	Notice,
@@ -143,6 +144,11 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private previewNavigation: PreviewNavigationState | null = null;
 	private readonly pendingPreviewLeaves = new WeakSet<WorkspaceLeaf>();
 	private allowedSessionViews = new WeakSet<EditorView>();
+	/**
+	 * Obsidian Mobile can keep an editor created before a plugin is enabled.
+	 * Such a view has no fields supplied by registerEditorExtension yet.
+	 */
+	private readonly fallbackExtendedViews = new WeakSet<EditorView>();
 	private openingPreview = false;
 	private previewSyncTimers: number[] = [];
 	private paintToken = 0;
@@ -1259,7 +1265,18 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				this.allowedSessionViews.add(cm);
 			}
 			// Obsidian can expose a leaf before its editor extensions are installed.
-			const current = readDetailSession(cm.state);
+			let current = readDetailSession(cm.state);
+			if (!current && !this.fallbackExtendedViews.has(cm)) {
+				this.fallbackExtendedViews.add(cm);
+				cm.dispatch({
+					effects: StateEffect.appendConfig.of(
+						detailsearchLinkerEditorExtension((count) =>
+							tf(this.settings.uiLanguage, 'badgeCandidates', count),
+						),
+					),
+				});
+				current = readDetailSession(cm.state);
+			}
 			if (!current) {
 				return;
 			}

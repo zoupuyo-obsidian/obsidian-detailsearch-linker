@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EditorState } from '@codemirror/state';
+import { EditorState, StateEffect } from '@codemirror/state';
 import {
 	detailSessionField,
+	detailsearchLinkerEditorExtension,
 	planHighlightRanges,
 	readDetailSession,
 	canPaintSession,
@@ -44,6 +45,19 @@ test('readDetailSession returns null when the field is not registered', () => {
 	const state = EditorState.create({ doc: 'plain' });
 	assert.doesNotThrow(() => readDetailSession(state));
 	assert.equal(readDetailSession(state), null);
+});
+
+test('editor extension can be installed into an existing editor state', () => {
+	const plain = EditorState.create({ doc: 'a target z' });
+	const configured = plain.update({
+		effects: StateEffect.appendConfig.of(detailsearchLinkerEditorExtension()),
+	}).state;
+	assert.notEqual(readDetailSession(configured), null);
+
+	const updated = configured.update({
+		effects: setDetailSessionEffect.of(session()),
+	}).state;
+	assert.deepEqual(readDetailSession(updated)?.anchors, session().anchors);
 });
 
 test('full-document replacement clears an existing session', () => {
