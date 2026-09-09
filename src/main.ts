@@ -3,6 +3,7 @@ import { StateEffect } from '@codemirror/state';
 import {
 	MarkdownView,
 	Notice,
+	Platform,
 	Plugin,
 	TFile,
 	type Command,
@@ -23,7 +24,7 @@ import {
 	COMMAND_DEFINITIONS,
 } from './core/commands/commandRegistry';
 import {
-	RIBBON_DEFINITIONS,
+	ribbonDefinitions,
 	type RibbonAction,
 	type RibbonId,
 } from './core/commands/ribbonRegistry';
@@ -119,6 +120,13 @@ const SAVE_DEBOUNCE_MS = 400;
 const SAVE_ERROR_NOTICE_COOLDOWN_MS = 10_000;
 const SEARCH_PROGRESS_THRESHOLD = 50;
 
+interface SourceModeRestoreLease {
+	leaf: WorkspaceLeaf;
+	filePath: string;
+	sourceFlag: unknown;
+	revision: number;
+}
+
 /** Ensures build markers stay in the bundle for post-build verification. */
 void BUILD_ARTIFACT_MARKERS;
 
@@ -163,6 +171,11 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	private activeSearchEditor: EditorView | null = null;
 	private activeSearchFilePath = '';
 	private searchRunId = 0;
+	private pendingSourceModeLease: SourceModeRestoreLease | null = null;
+	private paintedSourceModeLease: SourceModeRestoreLease | null = null;
+	private sourceModeRevision = 0;
+	private sourceModeTransition: Promise<void> = Promise.resolve();
+	private sourceModePreparing = false;
 	private highlightDiagnosticTimer: number | null = null;
 	private readonly saveCoordinator: SaveCoordinator;
 	private lastSaveErrorNoticeAt = 0;
@@ -215,9 +228,13 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 							current?.filePath &&
 							!sessionMatchesDocument(current, currentDoc)
 						) {
-							update.view.dispatch({
-								effects: setDetailSessionEffect.of(emptySession()),
-							});
+							if (this.sessions.get().filePath === current.filePath) {
+								this.clearSession(false);
+							} else {
+								update.view.dispatch({
+									effects: setDetailSessionEffect.of(emptySession()),
+								});
+							}
 						}
 					});
 					return;
@@ -246,14 +263,26 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.applyUiLanguage();
 
 		this.registerVaultEvents();
-		const syncWorkspaceViews = (): void => {
+		const syncWorkspaceViews = (clearWhenNoMarkdown = false): void => {
+			const activePath = this.app.workspace.getActiveViewOfType(MarkdownView)?.file?.path;
+			const sessionPath = this.sessions.get().filePath;
+			if (
+				this.settings.clearOnFileChange
+				&& sessionPath
+				&& (activePath ? activePath !== sessionPath : clearWhenNoMarkdown)
+				&& !this.previewNavigation
+				&& !this.openingPreview
+			) {
+				this.clearSession(false);
+				return;
+			}
 			this.applySessionToEditors();
 			this.attachHoverToActive();
 		};
 		this.registerEvent(
-			this.app.workspace.on('active-leaf-change', syncWorkspaceViews),
+			this.app.workspace.on('active-leaf-change', () => syncWorkspaceViews(true)),
 		);
-		this.registerEvent(this.app.workspace.on('layout-change', syncWorkspaceViews));
+		this.registerEvent(this.app.workspace.on('layout-change', () => syncWorkspaceViews()));
 		this.registerEvent(
 			this.app.workspace.on('file-open', (file) => {
 				if (
@@ -298,6 +327,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		// Obsidian does not await onunload; start an immediate best-effort flush.
 		void this.flushCacheSave().catch(() => this.showSaveErrorNotice());
 		this.activeSearchToken?.cancel();
+		this.restoreSourceModes();
 		this.hover.detach();
 		this.hoverAttachedTo = null;
 		this.sessions.clear();
@@ -416,7 +446,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 
 
 	private registerRibbonItems(): void {
-		for (const definition of RIBBON_DEFINITIONS) {
+		for (const definition of ribbonDefinitions(Platform.isMobile)) {
 			const element = this.addRibbonIcon(
 				definition.icon,
 				t(this.settings.uiLanguage, definition.i18nKey),
@@ -430,6 +460,9 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		switch (action) {
 			case 'unified-search':
 				void this.searchCurrentNoteCommand();
+				break;
+			case 'selection-search':
+				void this.searchSelectionCommand();
 				break;
 			case 'clipboard-search':
 				void this.searchClipboardCommand();
@@ -707,8 +740,12 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 	}
 
 	private async searchAutoCommand(): Promise<void> {
-		const ready = await this.ensureSourceEditor();
 		const lang = this.settings.uiLanguage;
+		if (this.searchBusy || this.sourceModePreparing) {
+			new Notice(t(lang, 'noticeSearchBusy'));
+			return;
+		}
+		const ready = await this.ensureSourceEditor();
 		if (!ready) {
 			new Notice(t(lang, 'noticeNoEditor'));
 			return;
@@ -718,6 +755,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		const text = cm.state.doc.toString();
 		const extracted = extractQueryCandidates(text, this.extractSettings());
 		if (extracted.length === 0) {
+			void this.restorePendingSourceMode();
 			new Notice(t(lang, 'noticeAutoNoTerms'));
 			return;
 		}
@@ -735,37 +773,154 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		file: TFile;
 		cm: EditorView;
 	} | null> {
-		let view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		let file = view?.file;
-		let cm = editorView(view?.editor);
-		if (!view || !file || !cm) {
+		if (this.sourceModePreparing) {
 			return null;
 		}
-		if (view.getMode() !== 'preview') {
+		this.sourceModePreparing = true;
+		try {
+			await this.sourceModeTransition;
+			let view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			let file = view?.file;
+			let cm = editorView(view?.editor);
+			if (!view || !file || !cm) {
+				return null;
+			}
+			if (view.getMode() !== 'preview') {
+				return { file, cm };
+			}
+
+			if (this.pendingSourceModeLease) {
+				await this.restorePendingSourceMode();
+				view = this.app.workspace.getActiveViewOfType(MarkdownView);
+				file = view?.file;
+				cm = editorView(view?.editor);
+				if (!view || !file || !cm || view.getMode() !== 'preview') {
+					return null;
+				}
+			}
+
+			const leaf = this.app.workspace
+				.getLeavesOfType('markdown')
+				.find((candidate) => candidate.view === view);
+			if (!leaf) {
+				return null;
+			}
+			const revision = ++this.sourceModeRevision;
+			const sourceFilePath = file.path;
+			const state = leaf.getViewState();
+			const sourceFlag = state.state?.source;
+			const lease = { leaf, filePath: sourceFilePath, sourceFlag, revision };
+			this.pendingSourceModeLease = lease;
+			try {
+				await leaf.setViewState({
+					...state,
+					type: 'markdown',
+					active: true,
+					state: { ...state.state, file: sourceFilePath, mode: 'source' },
+				});
+			} catch {
+				void this.restorePendingSourceMode();
+				return null;
+			}
+
+			if (revision !== this.sourceModeRevision) {
+				if (this.pendingSourceModeLease === lease) {
+					this.pendingSourceModeLease = null;
+				}
+				void this.queueSourceModeRestore(lease);
+				return null;
+			}
+			view = leaf.view as MarkdownView;
+			file = view?.file;
+			cm = editorView(view?.editor);
+			if (!view || !file || !cm || file.path !== sourceFilePath || view.getMode() === 'preview') {
+				void this.restorePendingSourceMode();
+				return null;
+			}
+			const sourceState = leaf.getViewState().state ?? {};
+			lease.sourceFlag = sourceState.source;
+			if (this.app.workspace.getActiveViewOfType(MarkdownView) !== view) {
+				void this.restorePendingSourceMode();
+				return null;
+			}
 			return { file, cm };
+		} finally {
+			this.sourceModePreparing = false;
 		}
+	}
 
-		const leaf = this.app.workspace
-			.getLeavesOfType('markdown')
-			.find((candidate) => candidate.view === view);
-		if (!leaf) {
-			return null;
-		}
-		const state = leaf.getViewState();
-		await leaf.setViewState({
-			...state,
-			type: 'markdown',
-			active: true,
-			state: { ...state.state, file: file.path, mode: 'source' },
-		});
+	private restorePendingSourceMode(): Promise<void> {
+		const lease = this.pendingSourceModeLease;
+		this.pendingSourceModeLease = null;
+		return lease ? this.queueSourceModeRestore(lease) : this.sourceModeTransition;
+	}
 
-		view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		file = view?.file;
-		cm = editorView(view?.editor);
-		if (!view || !file || !cm || view.getMode() === 'preview') {
-			return null;
+	private restorePaintedSourceMode(): Promise<void> {
+		const lease = this.paintedSourceModeLease;
+		this.paintedSourceModeLease = null;
+		return lease ? this.queueSourceModeRestore(lease) : this.sourceModeTransition;
+	}
+
+	private queueSourceModeRestore(lease: SourceModeRestoreLease): Promise<void> {
+		this.sourceModeRevision++;
+		const restore = async (): Promise<void> => {
+			const view = lease.leaf.view as MarkdownView;
+			if (!view?.file || view.file.path !== lease.filePath || view.getMode() !== 'source') {
+				return;
+			}
+			const state = lease.leaf.getViewState();
+			const stateData = state.state ?? {};
+			if (
+				state.type !== 'markdown'
+				|| stateData.file !== lease.filePath
+				|| stateData.mode !== 'source'
+				|| stateData.source !== lease.sourceFlag
+			) {
+				return;
+			}
+			const restoreState = { ...state };
+			delete restoreState.active;
+			await lease.leaf.setViewState({
+				...restoreState,
+				state: { ...stateData, mode: 'preview' },
+			});
+		};
+		const queued = this.sourceModeTransition.then(restore, restore);
+		this.sourceModeTransition = queued.catch(() => undefined);
+		return this.sourceModeTransition;
+	}
+
+	private restoreSourceModes(): void {
+		void this.restorePendingSourceMode();
+		void this.restorePaintedSourceMode();
+	}
+
+	private promotePendingSourceMode(filePath: string): void {
+		const pending = this.pendingSourceModeLease;
+		if (pending?.filePath === filePath) {
+			const previous = this.paintedSourceModeLease;
+			this.pendingSourceModeLease = null;
+			this.paintedSourceModeLease = pending;
+			if (previous && previous !== pending) {
+				void this.queueSourceModeRestore(previous);
+			}
+			return;
 		}
-		return { file, cm };
+		if (pending) {
+			void this.restorePendingSourceMode();
+		}
+		const painted = this.paintedSourceModeLease;
+		if (painted && painted.filePath !== filePath) {
+			void this.restorePaintedSourceMode();
+		}
+	}
+
+	private restoreSourceModeIfOwned(): void {
+		const lease = this.pendingSourceModeLease ?? this.paintedSourceModeLease;
+		if (!lease) {
+			return;
+		}
+		this.restoreSourceModes();
 	}
 
 	private async searchClipboardCommand(): Promise<void> {
@@ -782,6 +937,10 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			this.showQueryValidationNotice(lang, error);
 			return;
 		}
+		if (this.searchBusy || this.sourceModePreparing) {
+			new Notice(t(lang, 'noticeSearchBusy'));
+			return;
+		}
 		// Read the clipboard before awaiting a view transition: iOS may require
 		// that read to remain directly tied to the command gesture. Then use the
 		// visible source editor so the resulting anchor can be painted onscreen.
@@ -791,6 +950,11 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			return;
 		}
 		const { file, cm } = ready;
+		const text = cm.state.doc.toString();
+		const range = cm.state.selection.main;
+		if (!range.empty) {
+			cm.dispatch({ selection: { anchor: range.head } });
+		}
 		const queryKey = groupKeyForQuery(query, this.settings.caseSensitive);
 		if (
 			shouldClearRepeatedClipboardSearch(
@@ -803,8 +967,6 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			return;
 		}
 
-		const text = cm.state.doc.toString();
-		const range = cm.state.selection.main;
 		const request = new ClipboardQuerySource(query).resolve(
 			text,
 			range.from,
@@ -812,6 +974,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 			this.settings.caseSensitive,
 		);
 		if (!request) {
+			void this.restorePendingSourceMode();
 			new Notice(t(lang, 'noticeModalTermNotInNote'));
 			return;
 		}
@@ -1005,6 +1168,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		} finally {
 			progress?.hide();
 			this.finishSearch(token);
+			void this.restorePendingSourceMode();
 			if (pinnedCacheKey) {
 				this.cache.unpinActive(pinnedCacheKey);
 			}
@@ -1212,6 +1376,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		} finally {
 			progress?.hide();
 			this.finishSearch(token);
+			void this.restorePendingSourceMode();
 		}
 	}
 
@@ -1227,6 +1392,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.hover.detach();
 		this.hoverAttachedTo = null;
 		this.refreshStatus();
+		this.restoreSourceModeIfOwned();
 		if (notify) {
 			new Notice(t(this.settings.uiLanguage, 'noticeCleared'));
 		}
@@ -1236,6 +1402,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.allowedSessionViews = new WeakSet();
 		this.sessions.replace(next);
 		if (next.filePath && next.anchors.length > 0) {
+			this.promotePendingSourceMode(next.filePath);
 			this.bumpPaintToken();
 		} else {
 			this.clearPaintLock();
@@ -1642,6 +1809,8 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		this.hoverAttachedTo = null;
 		if (this.hasActiveSession()) {
 			this.attachHoverToActive();
+		} else {
+			this.restoreSourceModeIfOwned();
 		}
 		this.refreshStatus();
 		new Notice(t(lang, 'noticeTermIgnored'));
@@ -1745,6 +1914,7 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 		if (this.sessions.get().anchors.length === 0) {
 			this.hover.detach();
 			this.hoverAttachedTo = null;
+			this.restoreSourceModeIfOwned();
 		}
 	}
 
@@ -1776,8 +1946,11 @@ export default class DetailSearchLinkerPlugin extends Plugin {
 				: t(lang, 'ribbonTooltip');
 		unifiedRibbon.setAttr('aria-label', label);
 		this.ribbonItems
-			.get('clipboard-search')
-			?.setAttr('aria-label', t(lang, 'cmdSearchClipboard'));
+			.get('term-search')
+			?.setAttr(
+				'aria-label',
+				t(lang, Platform.isMobile ? 'cmdSearchClipboard' : 'cmdSearchSelection'),
+			);
 	}
 
 	private learnLinkedTerm(term: string): void {

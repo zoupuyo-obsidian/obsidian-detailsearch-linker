@@ -57,11 +57,11 @@ After DetailSearch Linker is accepted into the Obsidian community directory:
 
 ## Basic operations
 
-The command you will use most is **DSL: Find body candidates**. The ribbon search icon runs the same auto-extract action. Both ignore any text selection and never read the clipboard. `DSL` is the short label for DetailSearch Linker.
+The command you will use most is **DSL: Find body candidates**. The ribbon search icon runs the same auto-extract action. Both ignore any text selection and never read the clipboard. On desktop, the adjacent selection icon runs the same action as **DSL: Search selection**. `DSL` is the short label for DetailSearch Linker.
 
 ### Search copied text on iPhone
 
-Register both **DSL: Find body candidates** and **DSL: Search copied text** in the mobile toolbar. **DSL: Find body candidates** ignores any selected text and never reads the clipboard. For an explicit copied-term search, select text, copy it, then run **DSL: Search copied text**. If the selection is no longer active after copying, the closest matching occurrence to the cursor is used. Repeating the same copied term in the same open note clears that clipboard result; run it again to search again.
+Register both **DSL: Find body candidates** and **DSL: Search copied text** in the mobile toolbar. **DSL: Find body candidates** ignores any selected text and never reads the clipboard. For an explicit copied-term search, select text, copy it, then run **DSL: Search copied text**. If the selection remains active, the plugin reads the clipboard first and then collapses the selection; its previous location still identifies the intended occurrence. If it is already inactive, the closest matching occurrence to the cursor is used. Repeating the same copied term in the same open note clears that clipboard result; run it again to search again.
 
 ### Test a prerelease with BRAT
 
@@ -70,7 +70,7 @@ Use the same plugin ID for prerelease testing; do not install a separate Dev plu
 ### Search a selection explicitly
 
 1. Open a note and select the phrase you want to link, such as `cognitive load`.
-2. Run **DSL: Search selection**. The primary command and ribbon ignore the selection and auto-extract instead.
+2. Run **DSL: Search selection**. On desktop, you can use the ribbon selection icon instead. The primary command and ribbon search icon ignore the selection and auto-extract instead.
 3. The plugin searches **other note bodies** for that phrase. It does not extract other terms from the note.
 4. Only the selected occurrence is highlighted (except inside links, code, math, or frontmatter). Other occurrences are not selected by this command.
 5. Hover the highlight on desktop, or tap it on mobile. The preview lists destination notes, the nearest heading, and a short excerpt.
@@ -218,7 +218,7 @@ Run **DSL: Find body candidates**. Open a highlight, read the excerpt, then crea
 Use this when you already know the phrase and do not want the plugin to guess.
 
 - You can leave auto-extract settings at the defaults.
-- Select the phrase, then run **DSL: Search selection**. The primary command and ribbon still auto-extract, even while the selection remains visible.
+- Select the phrase, then run **DSL: Search selection**. On desktop, the ribbon selection icon does the same thing. The primary command and ribbon search icon still auto-extract, even while the selection remains visible.
 - Keep **Case sensitive** off unless `API` and `api` must stay distinct.
 
 Auto-extract is then a fallback for notes you have not annotated yet. The ignore list will not block these explicit searches.

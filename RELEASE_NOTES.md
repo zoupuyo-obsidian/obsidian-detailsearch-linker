@@ -1,5 +1,12 @@
 # DetailSearch Linker
 
+## 1.0.6-beta.14
+
+- Use selection search from the desktop ribbon while keeping copied-text search on mobile.
+- Restore a note's prior reading mode when plugin-owned candidate highlights are cleared or left behind.
+- Reject automatic Japanese phrase fragments with weak trailing boundaries such as `の`, `を`, and `し`.
+- Collapse a retained mobile selection after reading the copied query while preserving its location for occurrence matching.
+
 ## 1.0.6-beta.10
 
 - Search a wider internal pool before selecting visible body-link candidates, with adaptive density control and a fixed-cap fallback.

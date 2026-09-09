@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { RIBBON_DEFINITIONS } from './ribbonRegistry.ts';
+import { ribbonDefinitions } from './ribbonRegistry.ts';
 
-test('registers the unified and clipboard ribbon actions', () => {
+test('desktop registers body and selected-text ribbon actions', () => {
 	assert.deepEqual(
-		RIBBON_DEFINITIONS.map((definition) => ({
+		ribbonDefinitions(false).map((definition) => ({
 			id: definition.id,
 			icon: definition.icon,
 			i18nKey: definition.i18nKey,
@@ -18,11 +18,20 @@ test('registers the unified and clipboard ribbon actions', () => {
 				action: 'unified-search',
 			},
 			{
-				id: 'clipboard-search',
-				icon: 'clipboard',
-				i18nKey: 'cmdSearchClipboard',
-				action: 'clipboard-search',
+				id: 'term-search',
+				icon: 'text-select',
+				i18nKey: 'cmdSearchSelection',
+				action: 'selection-search',
 			},
 		],
 	);
+});
+
+test('mobile registers body and copied-text ribbon actions', () => {
+	assert.deepEqual(ribbonDefinitions(true)[1], {
+		id: 'term-search',
+		icon: 'clipboard',
+		i18nKey: 'cmdSearchClipboard',
+		action: 'clipboard-search',
+	});
 });

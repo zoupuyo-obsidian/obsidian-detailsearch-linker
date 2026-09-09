@@ -168,6 +168,54 @@ test('prose joins adjacent japanese word segments', () => {
 	assert.ok(phrase, 'expected combined 認知負荷 phrase');
 });
 
+test('prose rejects phrases ending at Japanese particles or conjunctive fragments', () => {
+	const text = '原著の数値を再確認し、結果を記録する';
+	const out = extractQueryCandidates(text, {
+		...BASE,
+		focusedExtraction: false,
+		normalProsePhrases: true,
+		minTermLength: 2,
+		maxTermLength: 12,
+	});
+	const queries = new Set(out.map((candidate) => candidate.query));
+	for (const fragment of ['原著の', '数値を', '再確認し', '結果を']) {
+		assert.ok(!queries.has(fragment), fragment);
+	}
+	for (const term of ['原著', '数値', '再確認', '結果', '記録']) {
+		assert.ok(queries.has(term), term);
+	}
+});
+
+test('Japanese boundary filtering preserves focused and manual dictionary terms', () => {
+	const text = '## 原著の\n\n**再確認し**\n\n原著の数値を再確認し';
+	const out = extractQueryCandidates(text, {
+		...BASE,
+		normalProsePhrases: true,
+		manualDictionaryTerms: ['数値を'],
+	});
+	assert.ok(out.some((candidate) => candidate.query === '原著の' && candidate.source === 'heading'));
+	assert.ok(out.some((candidate) => candidate.query === '再確認し' && candidate.source === 'emphasis'));
+	assert.ok(out.some((candidate) => candidate.query === '数値を' && candidate.dictionaryOrigin === 'manual'));
+});
+
+test('broad ngram filtering rejects Japanese ending fragments without rejecting whole words', () => {
+	const out = extractQueryCandidates('原著の。数値を。再確認し。教師。寿司。開始。から揚げ。より良い', {
+		...BASE,
+		focusedExtraction: false,
+		normalProsePhrases: false,
+		broadNgram: true,
+		ngramMinLength: 2,
+		ngramMaxLength: 4,
+	});
+	const queries = new Set(out.map((candidate) => candidate.query));
+	for (const fragment of ['原著の', '数値を', '確認し']) {
+		assert.ok(!queries.has(fragment), fragment);
+	}
+	for (const term of ['原著', '数値', '教師', '寿司', '開始', 'から揚げ', 'より良い']) {
+		assert.ok(queries.has(term), term);
+	}
+});
+
 test('repeated Japanese token survives a long line and the 40-query cap', () => {
 	const sourceLine = 'ホエイプロテインとビタミンD3補給の筋への効果';
 	const englishNoise = Array.from(

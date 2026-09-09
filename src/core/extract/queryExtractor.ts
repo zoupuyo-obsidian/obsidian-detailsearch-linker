@@ -47,6 +47,10 @@ const PROSE_SINGLE_WORDS_PER_LINE = Math.ceil(PROSE_PHRASES_PER_LINE / 2);
 const MAX_PHRASE_WORDS = 3;
 const PROSE_FREQUENCY_BONUS_PER_REPEAT = 40;
 const MAX_PROSE_FREQUENCY_BONUS = 160;
+const JAPANESE_BOUNDARY_FRAGMENTS = new Set([
+	'の', 'に', 'は', 'を', 'が', 'と', 'で', 'も', 'へ', 'や',
+	'から', 'まで', 'より', 'だけ', 'ほど', 'など', 'し', 'て',
+]);
 
 const CJK_RUN =
 	/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
@@ -210,6 +214,11 @@ function segmentWordsWithOffsets(line: string): WordSpan[] {
 	return out;
 }
 
+function hasUnhelpfulJapaneseBoundary(words: WordSpan[]): boolean {
+	return words.length > 1
+		&& JAPANESE_BOUNDARY_FRAGMENTS.has(words[words.length - 1]!.segment);
+}
+
 function isLatinWord(segment: string): boolean {
 	return /^[\p{L}\p{M}\p{N}]+$/u.test(segment);
 }
@@ -231,6 +240,9 @@ function gapIsPhraseSafe(line: string, from: number, to: number): boolean {
 function phraseFromWordSpans(line: string, words: WordSpan[], start: number, count: number): string | null {
 	const slice = words.slice(start, start + count);
 	if (slice.length !== count) {
+		return null;
+	}
+	if (hasUnhelpfulJapaneseBoundary(slice)) {
 		return null;
 	}
 	for (let i = 1; i < slice.length; i++) {
@@ -386,6 +398,14 @@ function mergeCandidates(raw: ExtractedCandidate[], settings: ExtractSettings): 
 	for (const item of raw) {
 		const key = normalizeTerm(item.query, settings.caseSensitive);
 		if (!key || ignored.has(key) || (stop.has(key) && item.dictionaryOrigin !== 'manual')) {
+			continue;
+		}
+		if (
+			item.source === 'ngram'
+			&& hasUnhelpfulJapaneseBoundary(
+				segmentWordsWithOffsets(item.query).filter((span) => span.isWordLike),
+			)
+		) {
 			continue;
 		}
 		if (
