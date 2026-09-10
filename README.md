@@ -4,9 +4,19 @@
 
 DetailSearch Linker finds a phrase in **other note bodies**, highlights that phrase in the **note you are editing**, and lets you insert a heading link after you preview the destination.
 
-Search starts only when you run a command or click the ribbon. The plugin does not index the vault at startup and does not send note contents anywhere.
+Search starts only when you run a command or click the ribbon search icon. The plugin does not index the vault at startup and does not send note contents anywhere.
 
 Inserted links follow Obsidian's **Use Wikilinks** setting (wikilink or Markdown link).
+
+## What's improved
+
+- **Selection search in Obsidian desktop no longer needs a copy step.** Select a phrase and click the **DSL: Search selection** icon, or run the same command.
+- **Obsidian mobile uses copied-text search.** Copy a phrase and run **DSL: Search copied text** without manually clearing the selection.
+- **Reading mode is restored after you clear candidates** if the plugin temporarily switched modes to show them. This also applies when switching tabs clears the candidates.
+- **Japanese automatic candidates have fewer incomplete endings**, such as phrases ending in a separate `の`, `を`, or `し`. This is not a guarantee of perfect word boundaries.
+- **Dictionaries and automatic candidate counts help surface useful terms.** Register important words yourself, or enable learning from links you actually create. Automatic count adjustment reduces overcrowding.
+
+Searching and showing candidates do not insert links into note text. A link is written only when you choose **Create link**.
 
 ## How this differs from Spot Linker
 
@@ -37,7 +47,7 @@ A highlight appears only when at least one other note body matched. A term with 
 
 ## Install
 
-Requires Obsidian **1.13.0** or newer (desktop and mobile).
+Requires Obsidian **1.13.0** or newer (Obsidian desktop and Obsidian mobile).
 
 ### Community plugins
 
@@ -55,25 +65,27 @@ After DetailSearch Linker is accepted into the Obsidian community directory:
 3. Copy the three files into that folder.
 4. Enable **DetailSearch Linker** under **Settings -> Community plugins**.
 
+To update manually, replace all three files with files from the same release, then disable and re-enable the plugin or restart Obsidian. Keep `data.json` to retain settings.
+
 ## Basic operations
 
-The command you will use most is **DSL: Find body candidates**. The ribbon search icon runs the same auto-extract action. Both ignore any text selection and never read the clipboard. On desktop, the adjacent selection icon runs the same action as **DSL: Search selection**. `DSL` is the short label for DetailSearch Linker.
+The command you will use most is **DSL: Find body candidates**. The ribbon search icon runs the same auto-extract action. Both ignore any text selection and never read the clipboard. In Obsidian desktop, the adjacent selection icon runs the same action as **DSL: Search selection**. `DSL` is the short label for DetailSearch Linker.
 
-### Search copied text on iPhone
+### Search copied text in Obsidian mobile
 
 Register both **DSL: Find body candidates** and **DSL: Search copied text** in the mobile toolbar. **DSL: Find body candidates** ignores any selected text and never reads the clipboard. For an explicit copied-term search, select text, copy it, then run **DSL: Search copied text**. If the selection remains active, the plugin reads the clipboard first and then collapses the selection; its previous location still identifies the intended occurrence. If it is already inactive, the closest matching occurrence to the cursor is used. Repeating the same copied term in the same open note clears that clipboard result; run it again to search again.
 
 ### Test a prerelease with BRAT
 
-Use the same plugin ID for prerelease testing; do not install a separate Dev plugin. Disable the released DetailSearch Linker, then run **BRAT: Add a beta plugin for testing** and enter `zoupuyo-obsidian/obsidian-detailsearch-linker`. Enable the beta, test it, then remove it from BRAT's beta list and re-enable the released plugin. The released and beta versions must not be enabled at the same time.
+If this repository is already registered in BRAT, update it there; do not add it again. If you pinned a version, check that selection as well. For a new registration, use `zoupuyo-obsidian/obsidian-detailsearch-linker`. Beta and stable builds use the same plugin ID, not separate installations.
 
 ### Search a selection explicitly
 
-1. Open a note and select the phrase you want to link, such as `cognitive load`.
-2. Run **DSL: Search selection**. On desktop, you can use the ribbon selection icon instead. The primary command and ribbon search icon ignore the selection and auto-extract instead.
+1. In Obsidian desktop, open a note in an editable view and select a phrase such as `cognitive load`. You do not need to copy it.
+2. Run **DSL: Search selection**. In Obsidian desktop, you can use the ribbon selection icon instead. The primary command and ribbon search icon ignore the selection and auto-extract instead.
 3. The plugin searches **other note bodies** for that phrase. It does not extract other terms from the note.
 4. Only the selected occurrence is highlighted (except inside links, code, math, or frontmatter). Other occurrences are not selected by this command.
-5. Hover the highlight on desktop, or tap it on mobile. The preview lists destination notes, the nearest heading, and a short excerpt.
+5. Hover the highlight in Obsidian desktop, or tap it in Obsidian mobile. The preview lists destination notes, the nearest heading, and a short excerpt.
 6. Click **Create link** on the destination you want. The selected occurrence becomes a heading link.
 
 Selection search always runs, even if the phrase is on the ignore list. Use this when you already know the wording and only want body matches for that wording.
@@ -100,9 +112,9 @@ Auto-extract does not open an input box and is not a full-recall scan of every p
 | Same open note already has highlights | **Clear** highlights first | **Clear** highlights first |
 | After that clear, next press | Auto-extract | Auto-extract |
 
-The ribbon and **DSL: Find body candidates** do the same body-candidate search. On the same open note, an existing result set makes the first press clear the highlights; the next press starts auto-extraction again.
+The ribbon search icon and **DSL: Find body candidates** do the same body-candidate search. On the same open note, an existing result set makes the first press clear the highlights; the next press starts auto-extraction again.
 
-Clear highlights at any time with **DSL: Clear highlights** or the status bar label. The primary command and ribbon also clear the existing result on their first press for the same open note.
+Clear highlights at any time with **DSL: Clear highlights** or the status bar label. The primary command and ribbon search icon also clear the existing result on their first press for the same open note.
 
 ### After the preview opens
 
@@ -111,7 +123,7 @@ Clear highlights at any time with **DSL: Clear highlights** or the status bar la
 - **Ignore this term** is described in the next section.
 - **Clear highlights** ends the current result set.
 
-On desktop, the preview takes keyboard focus when it appears. Tab and arrow keys move inside it. Move the mouse off the highlight, or press Escape, to type in the note again. After you click the preview, it stays open until Escape or a click in the note.
+In Obsidian desktop, the preview takes keyboard focus when it appears. Tab and arrow keys move inside it. Move the mouse off the highlight, or press Escape, to type in the note again. After you click the preview, it stays open until Escape or a click in the note.
 
 ### Keyboard commands
 
@@ -123,17 +135,17 @@ On desktop, the preview takes keyboard focus when it appears. Tab and arrow keys
 
 These work even when the candidate-count badge is hidden. They have no default hotkeys.
 
-### Legacy commands
+### Additional command options
 
 **DSL: Search selection** is the explicit selection command. Without a selection, it opens a modal. The typed phrase must already exist in the current note, and an explicit search highlights only the selected occurrence or the occurrence found for the typed phrase.
 
 **DSL: Auto-extract and search** is the diagnostic command. It force-runs auto-extraction, regardless of the remaining selection or current highlights.
 
-Keep these commands for explicit searches and diagnostics. Day-to-day use is **DSL: Find body candidates** plus the ribbon.
+For everyday use, choose **DSL: Find body candidates** for automatic suggestions, **DSL: Search selection** for a phrase in Obsidian desktop, or **DSL: Search copied text** in Obsidian mobile.
 
-### Mobile
+### Obsidian mobile
 
-Add **DSL: Find body candidates** to Obsidian’s **Mobile toolbar**. The ribbon icon, when available, follows the table above. Tap a highlight to open the preview.
+Add **DSL: Find body candidates** and **DSL: Search copied text** to Obsidian’s **Mobile toolbar**. The search icon finds automatic candidates; the mobile clipboard icon searches copied text. Tap a highlight to open the preview.
 
 ## Ignore list and stop words
 
@@ -198,64 +210,73 @@ Priority when too many phrases are extracted: emphasis and highlights first, the
 | **Cache limit (MB)** | Oldest cached queries are dropped first when the limit is hit. |
 | **UI language** | Plugin labels only. |
 
-## Example setups
+## Examples
 
-### Japanese concept notes, conservative
+### Search a phrase in Obsidian desktop
 
-Use this when the current note is prose and you want links into other essays, not into daily logs.
+In a research note, select `cognitive load`, then click the **DSL: Search selection** icon. No copying is required. If another note's body contains that phrase, the selected occurrence lights up. Hover over it, read the excerpt, and choose **Create link** only if the destination is relevant.
 
-- Include only the folders that hold finished notes.
-- Exclude daily notes, templates, and clip dumps.
-- Keep **Prefer headings and emphasis** and **Extract phrases from ordinary prose** on.
-- Leave **Broad n-gram extraction** off.
-- Keep **Minimum term length** at 3.
-- Leave **Ignored terms** empty until a repeated false hit appears.
+The magnifying-glass icon has a different purpose: it finds candidates from the whole note, even when text is selected.
 
-Run **DSL: Find body candidates**. Open a highlight, read the excerpt, then create the link. If `の` or a two-character fragment appears, raise the minimum length or add that fragment to **Ignored terms**.
+### Search copied text in Obsidian mobile
 
-### Selection-first drafting
+Select `cognitive load` in the current note, copy it, and run **DSL: Search copied text**. Leave the selection as it is: the plugin reads the clipboard and clears the selection before searching. Tap the highlight to inspect the result.
 
-Use this when you already know the phrase and do not want the plugin to guess.
+The copied phrase must exist in the current note. If the selection is already cleared, the matching occurrence closest to the cursor is used. Repeating the same copied query in the same note clears its result; another run searches again.
 
-- You can leave auto-extract settings at the defaults.
-- Select the phrase, then run **DSL: Search selection**. On desktop, the ribbon selection icon does the same thing. The primary command and ribbon search icon still auto-extract, even while the selection remains visible.
-- Keep **Case sensitive** off unless `API` and `api` must stay distinct.
+### Return to reading after checking candidates
 
-Auto-extract is then a fallback for notes you have not annotated yet. The ignore list will not block these explicit searches.
+1. Start in Reading view and run **DSL: Find body candidates**.
+2. The plugin temporarily switches to an editing view to show highlights.
+3. Inspect the candidates, then run **DSL: Clear highlights**.
+4. The note returns to Reading view.
 
-### Recent research and meeting notes
+With **Clear highlights when switching notes** enabled (the default), leaving for another note or tab clears the candidates and restores the original note's reading mode. Starting in an editing view leaves that mode unchanged. A manual mode change made after the search is respected.
 
-Use this when the useful destinations are notes you touched this month.
+Using **Open note** inside the preview is an exception: source highlights are kept so you can return and continue checking them.
 
-- Set **Search scope** to **recently modified** or **recent + workset**.
-- Set **Recent days** to 30 (default) or 14 if the vault is busy.
-- Include the research or project folder.
-- Raise **Max candidate notes** only if a common term is truncated too early.
+### Make a short specialist term a candidate
 
-A full-vault **All included notes** scope will also find older essays. It takes longer on the first run for each term.
+Add `漸進` to **Manual dictionary terms**, one term per line. Close settings, open a note containing the term, clear any old highlights, and run **DSL: Find body candidates**.
 
-### Large or mixed vault
+Dictionary words are prioritized, including inside compounds such as `漸進性`. They still need a match in another eligible note to be highlighted; folder filters and search limits still apply.
 
-An empty **Include folders** list reads every note that is not excluded, up to **Max files** (default 500). Configure folders before the first wide auto-extract.
+Enable **Learn terms from created links** to remember eligible terms after a link is successfully created. Searching alone does not teach the dictionary. Edit or remove entries under **Learned dictionary terms**.
 
-- Put only destination folders in **Include folders**.
-- Put archives, OCR dumps, and generated files in **Exclude folders**.
-- Keep **Max files** at 200–500 until you know the cost.
-- Keep **Broad n-gram extraction** off.
-- Use **Memory only** cache if you do not want query history in `data.json`.
+### Reduce awkward Japanese fragments
 
-If a run reports skipped files, either the size cap or the file cap was hit. Those notes were not searched.
+Automatic extraction checks word boundaries to reduce phrases ending in separate particles or fragments such as `の`, `を`, and `し`. It does not simply remove every word ending in those characters. Some awkward candidates can still remain.
 
-### Noisy auto-extract
+This filter does not remove terms explicitly selected or copied, dictionary entries, or phrases taken from headings and emphasis. To hide an unwanted automatic candidate, open its preview and choose **Ignore this term**. Explicit selection and copied-text searches still work for ignored terms.
 
-Use this after the first auto-extract highlights words you will never link.
+### Limit a large vault
 
-1. Open the preview on a bad highlight and click **Ignore this term**.
-2. Add generic English tokens to **Stop words** if they keep appearing as candidates.
-3. Turn **Extract phrases from ordinary prose** off so only headings and emphasis remain.
-4. Raise **Minimum term length** to 4 if short Japanese fragments remain.
+Set **Include folders** to useful destination folders and exclude templates or generated notes. Start with the default file limit of 500, and leave broad n-gram extraction off. Use a recently modified scope for current work, or **All included notes** when older notes matter.
 
-The current highlights for an ignored term disappear immediately. Other phrases stay. The next auto-extract will not bring the ignored term back.
+A file skipped because of a folder, date, count, or size limit is not searched in that run.
+
+## Troubleshooting
+
+### A phrase does not light up
+
+- Check the action: selection search in Obsidian desktop uses **DSL: Search selection**, not the magnifying glass.
+- A copied phrase must also occur in the current note.
+- Another eligible note must contain the phrase in its body; a title alone is not enough.
+- Check include/exclude folders, search scope, and file count/size limits.
+- Existing links, code, math, and frontmatter are protected.
+- If automatic search misses a term, try selecting or copying it explicitly, or add it to the manual dictionary.
+
+If highlights already exist, the primary search action clears them first. Run it again to search.
+
+### Results came from the cache
+
+This means earlier results were reused, not that the search failed. If results seem wrong, use **Clear search cache** and search again to help isolate the issue. Clearing the cache does not delete note text.
+
+After changing dictionary or extraction settings, return to the note and search again; settings changes do not automatically show new candidates.
+
+### Copied text could not be read
+
+Copy the phrase again and immediately run **DSL: Search copied text**. If the device asks for permission to paste, allow it and retry.
 
 ## Protected text and rejected queries
 
@@ -270,6 +291,8 @@ A run is not guaranteed to see every note. Folder filters, scope, file caps, and
 ## Privacy
 
 Reads and caches stay on the device. The default persistent cache writes search queries and matching paths, headings, offsets, and mtimes next to settings in the plugin `data.json`. Excerpts and full note bodies are not stored. Use **Memory only** or **Clear search cache** if you do not want those details on disk.
+
+Manual and learned dictionary entries are also stored in the vault's plugin settings. Learned terms can be edited, removed, or cleared, with a maximum of 200 entries. **Memory only** affects the search cache, not dictionary storage. Your vault sync or backup tools may include the plugin settings file.
 
 ## Development
 
